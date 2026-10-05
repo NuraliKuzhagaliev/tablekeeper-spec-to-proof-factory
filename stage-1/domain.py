@@ -1,11 +1,11 @@
 """Validation and timezone rules shared by writes, fixtures and snapshots."""
 import hashlib
 import hmac
-import math
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from json_value import JSONNumber, is_number
 
 UTC = timezone.utc
 WEEKDAYS = ('mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun')
@@ -27,7 +27,7 @@ def field(body, name, kind, required=True):
             fail()
         return None
     value = body[name]
-    if type(value) is not kind:
+    if type(value) is not kind and not (kind is int and is_number(value)):
         fail('malformed_request', 400)
     return value
 
@@ -40,15 +40,27 @@ def identifier(value):
 
 def party(value):
     # JSON numbers have no integer/float distinction; booleans are not numbers.
-    if type(value) not in (int, float) or (type(value) is float and not math.isfinite(value)) or value < 1 or value != int(value):
+    if not is_number(value):
         fail()
-    return int(value)
+    try:
+        number = JSONNumber.from_value(value)
+    except ValueError:
+        fail()
+    if not number.is_integer or number < 1:
+        fail()
+    return number.model_integer()
 
 
 def positive_integer(value, zero=False):
-    if type(value) is not int or value < (0 if zero else 1):
+    if not is_number(value):
         fail()
-    return value
+    try:
+        number = JSONNumber.from_value(value)
+    except ValueError:
+        fail()
+    if not number.is_integer or number < (0 if zero else 1):
+        fail()
+    return number.model_integer()
 
 
 def local_datetime(value):
@@ -71,17 +83,39 @@ def local_date(value):
         fail()
 
 
+def fixed_instant(local, zone):
+    # Fixed-offset datetimes preserve absolute comparison/addition semantics.
+    # They can also describe valid local dates whose UTC equivalent is outside
+    # datetime's year range; converting every instant to a UTC datetime cannot.
+    aware = local.replace(tzinfo=ZoneInfo(zone), fold=0)
+    return aware.replace(tzinfo=timezone(aware.utcoffset()))
+
+
+def in_zone(instant, zone):
+    target = ZoneInfo(zone)
+    try:
+        return instant.astimezone(target)
+    except OverflowError:
+        # UTC conversion may cross year 0/10000 while the resulting local date
+        # remains valid. A Gregorian 400-year cycle preserves month/day/weekday.
+        # At the upper boundary IANA future rules repeat on that cycle; at the
+        # lower boundary the pre-transition offset is constant. Use a safe
+        # surrogate only for the otherwise unrepresentable intermediate UTC date.
+        shift = -400 if instant.year > 5000 else 400
+        surrogate = instant.replace(year=instant.year + shift).astimezone(target)
+        return surrogate.replace(year=surrogate.year - shift)
+
+
 def resolve(local, zone):
     # fold=0 always selects the first occurrence of a repeated local time.
-    aware = local.replace(tzinfo=ZoneInfo(zone), fold=0)
-    absolute = aware.astimezone(UTC)
-    if absolute.astimezone(aware.tzinfo).replace(tzinfo=None) != local:
+    absolute = fixed_instant(local, zone)
+    if in_zone(absolute, zone).replace(tzinfo=None) != local:
         fail('invalid_local_time')
     return absolute
 
 
 def timestamp(absolute, zone='UTC'):
-    return absolute.astimezone(ZoneInfo(zone)).isoformat(timespec='seconds')
+    return in_zone(absolute, zone).isoformat(timespec='seconds')
 
 
 def read_timestamp(value):
@@ -91,7 +125,7 @@ def read_timestamp(value):
         result = datetime.fromisoformat(value)
         if result.tzinfo is None:
             fail()
-        return result.astimezone(UTC)
+        return result
     except (ValueError, OverflowError):
         fail()
 
@@ -118,12 +152,14 @@ def booking(restaurant, body):
     hours = bounds(restaurant, local.date())
     if hours is None or local < hours[0] or local >= hours[1]:
         fail('outside_opening_hours')
-    # Durations and closing comparisons use UTC, including across DST changes.
-    closing = hours[1].replace(tzinfo=ZoneInfo(restaurant['timezone']), fold=0).astimezone(UTC)
-    if restaurant['reservation_duration_minutes'] * 60 > (closing - start).total_seconds():
+    # Fixed offsets make durations and comparisons absolute across DST changes.
+    closing = fixed_instant(hours[1], restaurant['timezone'])
+    if restaurant['reservation_duration_minutes'] > (closing - start).total_seconds() / 60:
         fail('outside_opening_hours')
-    end = start + timedelta(minutes=restaurant['reservation_duration_minutes'])
-    if int((local - hours[0]).total_seconds() // 60) % restaurant['slot_minutes']:
+    end = start + timedelta(minutes=int(restaurant['reservation_duration_minutes']))
+    elapsed = int((local - hours[0]).total_seconds() // 60)
+    grid = restaurant['slot_minutes']
+    if elapsed and (grid > elapsed or elapsed % int(grid)):
         fail('not_on_slot_grid')
     if count > table['capacity']:
         fail('party_exceeds_capacity')
@@ -165,8 +201,8 @@ def email(value):
 def same_json(a, b):
     if type(a) is bool or type(b) is bool:
         return type(a) is type(b) and a == b
-    if type(a) in (int, float) and type(b) in (int, float):
-        return a == b
+    if is_number(a) and is_number(b):
+        return JSONNumber.from_value(a) == JSONNumber.from_value(b)
     if type(a) is not type(b):
         return False
     if isinstance(a, dict):

@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 import server
 from service import Service
 from test_service import fixture
+from json_value import loads, dumps
 
 
 class HTTPTests(unittest.TestCase):
@@ -28,7 +29,7 @@ class HTTPTests(unittest.TestCase):
         server.service = Service()
 
     def call(self, path, body=None, raw=None, headers=None, method=None):
-        data = raw if raw is not None else None if body is None else json.dumps(body).encode()
+        data = raw if raw is not None else None if body is None else dumps(body).encode()
         request = urllib.request.Request(self.base + path, data=data, method=method, headers={'Content-Type': 'application/json', **(headers or {})})
         try:
             response = urllib.request.urlopen(request, timeout=5)
@@ -36,11 +37,11 @@ class HTTPTests(unittest.TestCase):
             response = exc
         with response:
             payload = response.read()
-            return response.status, json.loads(payload) if payload else None, response.headers
+            return response.status, loads(payload) if payload else None, response.headers
 
     def test_errors_are_json_and_wrong_body_types_are_distinct(self):
         self.assertEqual(self.call('/health')[0], 200)
-        for raw in [b'{', b'[]', b'null', b'{"email":NaN}', b'{"email":1e999}']:
+        for raw in [b'{', b'[]', b'null', b'{"email":NaN}', b'{"email":Infinity}', b'{"email":-Infinity}']:
             status, body, headers = self.call('/auth/signup', raw=raw)
             self.assertEqual((status, body['error']['code']), (400, 'malformed_request'))
             self.assertEqual(headers['Content-Type'], 'application/json; charset=utf-8')
@@ -62,3 +63,116 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(sum(status == 201 for status, _, _ in results), 1)
         self.assertEqual(sum(status == 200 for status, _, _ in results), 49)
         self.assertTrue(all(response == results[0][1] for _, response, _ in results))
+
+    def login(self):
+        return self.call('/auth/login', body={'email': 'alice@example.com', 'password': 'password123'})[1]['token']
+
+    def test_ignored_numbers_have_no_machine_magnitude_limit(self):
+        ordinary = dumps(fixture()).encode()
+        for token in ('1e309', '1e-999', '1e9999999999999999999999999', '9' * 5000):
+            with self.subTest(number=token[:30]):
+                raw = ordinary[:-1] + b',"ignored":' + token.encode() + b'}'
+                self.assertEqual(self.call('/_test/reset', raw=raw)[0], 204)
+        token = self.login()
+        headers = {'Authorization': 'Bearer ' + token, 'Idempotency-Key': 'large-party'}
+        raw = b'{"restaurant_id":"r","table_id":"t1","starts_at_local":"2032-06-03T18:00","party_size":1e309}'
+        status, body, _ = self.call('/reservations', raw=raw, headers=headers)
+        self.assertEqual((status, body['error']['code']), (422, 'party_exceeds_capacity'))
+
+    def test_exact_numeric_receipts_survive_snapshot_and_cancellation(self):
+        self.assertEqual(self.call('/_test/reset', body=fixture())[0], 204)
+        token = self.login()
+        headers = {'Authorization': 'Bearer ' + token, 'Idempotency-Key': 'numbers'}
+        base = b'{"restaurant_id":"r","table_id":"t1","starts_at_local":"2032-06-03T18:00","party_size":4'
+        raw = base + b',"ignored":[1e309,1e-400,9007199254740993.0,1e9999999999999999999999999]}'
+        status, original, _ = self.call('/reservations', raw=raw, headers=headers)
+        self.assertEqual(status, 201)
+        equivalent = base + b',"ignored":[10e308,10e-401,9007199254740993,10e9999999999999999999999998]}'
+        self.assertEqual(self.call('/reservations', raw=equivalent, headers=headers)[:2], (200, original))
+        for replacement in (b'[2e309,1e-400,9007199254740993.0,1e9999999999999999999999999]',
+                            b'[1e309,0,9007199254740993.0,1e9999999999999999999999999]',
+                            b'[1e309,1e-400,9007199254740992.0,1e9999999999999999999999999]'):
+            status, body, _ = self.call('/reservations', raw=base + b',"ignored":' + replacement + b'}', headers=headers)
+            self.assertEqual((status, body['error']['code']), (409, 'idempotency_key_reuse'))
+        batch_raw = ('{"moves":[{"reference":"' + original['reference']
+                     + '","party_size":4.0,"ignored":1e309}],"ignored":1e-400}').encode()
+        batch_headers = {'Authorization': 'Bearer ' + token, 'Idempotency-Key': 'batch-numbers'}
+        batch_status, batch_original, _ = self.call('/reservation-moves', raw=batch_raw, headers=batch_headers)
+        self.assertEqual(batch_status, 201)
+        self.call('/reservations/' + original['reference'] + '/cancel', body={}, headers={'Authorization': 'Bearer ' + token})
+        status, snapshot, _ = self.call('/_test/export')
+        self.assertEqual(status, 200)
+        receipt = next(iter(loads(snapshot['state']['payload'])['receipts'].values()))
+        self.assertEqual([dumps(n) for n in receipt['body']['ignored']],
+                         ['1e309', '1e-400', '9007199254740993.0', '1e9999999999999999999999999'])
+        server.service = Service()
+        # The public snapshot wrapper round-trips through an ordinary JSON
+        # parser/writer without exposing unsupported machine numeric values.
+        portable = json.loads(json.dumps(snapshot, allow_nan=False))
+        self.assertEqual(self.call('/_test/import', body=portable)[0], 204)
+        self.assertEqual(self.call('/reservations', raw=equivalent, headers=headers)[:2], (200, original))
+        self.assertEqual(self.call('/reservation-moves', raw=batch_raw, headers=batch_headers)[:2], (200, batch_original))
+        self.assertEqual(self.call('/reservations/' + original['reference'], headers={'Authorization': 'Bearer ' + token})[1]['status'], 'cancelled')
+        self.assertEqual(self.call('/_test/export')[1], snapshot)
+
+    def test_large_capacity_and_integer_numeric_forms_remain_exact(self):
+        data = fixture()
+        data['restaurants'][0]['tables'][0]['capacity'] = loads('1e309')
+        self.assertEqual(self.call('/_test/reset', body=data)[0], 204)
+        token = self.login()
+        headers = {'Authorization': 'Bearer ' + token, 'Idempotency-Key': 'large-valid'}
+        raw = b'{"restaurant_id":"r","table_id":"t1","starts_at_local":"2032-06-03T18:00","party_size":1e309}'
+        status, original, _ = self.call('/reservations', raw=raw, headers=headers)
+        self.assertEqual(status, 201)
+        self.assertEqual(dumps(original['party_size']), '1e309')
+        snapshot = self.call('/_test/export')[1]
+        server.service = Service()
+        self.assertEqual(self.call('/_test/import', body=snapshot)[0], 204)
+        self.assertEqual(self.call('/reservations', raw=raw, headers=headers)[:2], (200, original))
+
+    def test_terminal_calendar_day_grid_stops_within_its_bounds(self):
+        data = fixture(zone='UTC')
+        restaurant = data['restaurants'][0]
+        restaurant['opening_hours'] = [{'weekday': day, 'opens': '18:00', 'closes': '23:00'}
+                                       for day in ('mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun')]
+        for step in (1440, 10 ** 100, 299, 30):
+            with self.subTest(step=str(step)[:10]):
+                restaurant['slot_minutes'] = step
+                self.assertEqual(self.call('/_test/reset', body=data)[0], 204)
+                for day in ('0001-01-01', '2026-10-09', '9999-12-31'):
+                    status, response, _ = self.call('/availability?restaurant_id=r&date=' + day + '&party_size=2')
+                    self.assertEqual(status, 200)
+                    expected = 1 if step > 210 else 8
+                    self.assertEqual(len(response['slots']), expected)
+                    self.assertEqual(response['slots'][0]['starts_at_local'], day + 'T18:00')
+        token = self.login()
+        status, result, _ = self.call('/reservations', body={'restaurant_id': 'r', 'table_id': 't1',
+                                      'starts_at_local': '9999-12-31T18:00', 'party_size': 2},
+                                     headers={'Authorization': 'Bearer ' + token, 'Idempotency-Key': 'last-date'})
+        self.assertEqual(status, 201)
+        self.assertEqual(result['ends_at'], '9999-12-31T19:30:00+00:00')
+
+    def test_terminal_local_date_can_cross_utc_year_boundary(self):
+        for zone in ('UTC', 'America/New_York', 'Europe/Berlin', 'Asia/Tokyo'):
+            with self.subTest(zone=zone):
+                data = fixture(zone=zone, date='9999-12-31')
+                data['restaurants'][0]['opening_hours'][0].update(opens='18:00', closes='23:00')
+                data['restaurants'][0]['slot_minutes'] = 30
+                self.assertEqual(self.call('/_test/reset', body=data)[0], 204)
+                status, availability, _ = self.call('/availability?restaurant_id=r&date=9999-12-31&party_size=2')
+                self.assertEqual(status, 200)
+                self.assertEqual(len(availability['slots']), 8)
+                token = self.login()
+                headers = {'Authorization': 'Bearer ' + token, 'Idempotency-Key': 'edge'}
+                request = {'restaurant_id': 'r', 'table_id': 't1', 'starts_at_local': '9999-12-31T18:00', 'party_size': 2}
+                status, result, _ = self.call('/reservations', body=request, headers=headers)
+                self.assertEqual(status, 201)
+                self.assertTrue(result['ends_at'].startswith('9999-12-31T19:30:00'))
+                snapshot = self.call('/_test/export')[1]
+                server.service = Service()
+                self.assertEqual(self.call('/_test/import', body=snapshot)[0], 204)
+                self.assertEqual(self.call('/reservations', body=request, headers=headers)[:2], (200, result))
+                request['starts_at_local'] = '9999-12-31T19:30'
+                headers['Idempotency-Key'] = 'adjacent'
+                self.assertEqual(self.call('/reservations', body=request, headers=headers)[0], 201)
+                self.assertEqual(len(self.call('/reservations', headers={'Authorization': 'Bearer ' + token})[1]['reservations']), 2)

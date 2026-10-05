@@ -1,6 +1,4 @@
 """Threaded HTTP transport; the service owns all application transactions."""
-import json
-import math
 import os
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -8,19 +6,9 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from domain import APIError, fail
 from service import Service
+from json_value import loads, dumps
 
 service = Service()
-
-
-def reject_constant(value):
-    raise ValueError('non-JSON numeric constant')
-
-
-def finite_float(value):
-    result = float(value)
-    if not math.isfinite(result):
-        raise ValueError('non-finite number')
-    return result
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -46,7 +34,7 @@ class Handler(BaseHTTPRequestHandler):
                     if not raw and path.startswith('/reservations/') and path.endswith('/cancel'):
                         body = {}
                     else:
-                        body = json.loads(raw.decode('utf-8'), parse_constant=reject_constant, parse_float=finite_float)
+                        body = loads(raw.decode('utf-8'))
                 except (ValueError, UnicodeError, RecursionError):
                     fail('malformed_request', 400)
                 if type(body) is not dict:
@@ -61,7 +49,7 @@ class Handler(BaseHTTPRequestHandler):
             # Unexpected faults are reported without leaking private state.
             print('Unexpected application fault: ' + type(exc).__name__, file=sys.stderr, flush=True)
             status, response = 500, {'error': {'code': 'internal_error', 'message': 'Unexpected service error'}}
-        encoded = b'' if response is None else json.dumps(response, ensure_ascii=True, separators=(',', ':'), allow_nan=False).encode('utf-8')
+        encoded = b'' if response is None else dumps(response).encode('utf-8')
         try:
             self.send_response(status)
             self.send_header('Content-Type', 'application/json; charset=utf-8')

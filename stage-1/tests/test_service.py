@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 
 from domain import APIError, UTC, booking, overlaps, read_timestamp
 from service import Service
+from json_value import loads, dumps
 
 
 def fixture(zone='Europe/Berlin', date='2032-06-03'):
@@ -162,9 +163,20 @@ class ServiceTests(unittest.TestCase):
         destination.request('POST', '/_test/import', {}, snapshot, {})
         self.assertEqual(destination.request('GET', '/_test/export', {}, {}, {})[1], snapshot)
         invalid = copy.deepcopy(snapshot)
-        invalid['state']['reservations'][create['reference']]['party_size'] = 99
+        invalid_state = loads(invalid['state']['payload'])
+        invalid_state['reservations'][create['reference']]['party_size'] = 99
+        invalid['state']['payload'] = dumps(invalid_state)
         self.assert_error('validation_failed', lambda: destination.request('POST', '/_test/import', {}, invalid, {}))
         self.assertEqual(destination.request('GET', '/_test/export', {}, {}, {})[1], snapshot)
+
+    def test_earlier_direct_object_snapshot_remains_importable(self):
+        request = self.request_body()
+        original = self.call('POST', '/reservations', request, 'legacy')[1]
+        legacy = {'track': 'tablekeeper', 'format_version': 1, 'state': copy.deepcopy(self.service.state)}
+        destination = Service()
+        self.assertEqual(destination.request('POST', '/_test/import', {}, legacy, {}), (204, None))
+        headers = {'Authorization': 'Bearer ' + self.token, 'Idempotency-Key': 'legacy'}
+        self.assertEqual(destination.request('POST', '/reservations', {}, request, headers), (200, original))
 
     def test_spring_and_fall_absolute_durations(self):
         cases = [('Europe/Berlin', '2026-03-29', '2026-10-25', '02:30', '02:30', '03:00', '+02:00', '+01:00'),

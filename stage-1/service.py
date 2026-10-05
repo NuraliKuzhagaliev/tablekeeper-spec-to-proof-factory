@@ -7,9 +7,10 @@ import threading
 import uuid
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from json_value import is_number, loads, dumps
 
 from domain import (APIError, UTC, WEEKDAYS, booking, bounds, check_password, email,
-                    fail, field, hash_password, identifier, local_date, overlaps,
+                    fail, field, fixed_instant, hash_password, identifier, local_date, overlaps,
                     party, positive_integer, read_timestamp, resolve, same_json,
                     timestamp, valid_hash)
 
@@ -109,9 +110,13 @@ def fixture_state(body):
 def imported_state(body):
     """Validate a replacement completely before publishing it to readers."""
     try:
-        if body.get('track') != 'tablekeeper' or type(body.get('format_version')) is not int or body['format_version'] != 1:
+        if body.get('track') != 'tablekeeper' or not is_number(body.get('format_version')) or body['format_version'] != 1:
             fail()
         state = body.get('state')
+        if type(state) is dict and set(state) == {'encoding', 'payload'}:
+            if state['encoding'] != 'tablekeeper-json-v1' or type(state['payload']) is not str:
+                fail()
+            state = loads(state['payload'])
         if type(state) is not dict or set(state) != set(empty_state()) or any(type(v) is not dict for v in state.values()):
             fail()
         emails, reservation_ids = set(), set()
@@ -225,7 +230,7 @@ class Service:
     def cutoff(self, reservation):
         restaurant = self.state['restaurants'][reservation['restaurant_id']]
         delta = (read_timestamp(reservation['starts_at']) - datetime.now(UTC)).total_seconds()
-        if delta <= restaurant['cancellation_cutoff_minutes'] * 60:
+        if delta / 60 <= restaurant['cancellation_cutoff_minutes']:
             fail('cutoff_passed', 409)
 
     def amended(self, reservation, changes):
@@ -253,7 +258,11 @@ class Service:
             self.state = replacement
             return 204, None
         if method == 'GET' and path == '/_test/export':
-            return 200, {'track': 'tablekeeper', 'format_version': 1, 'state': self.state}
+            # The state is opaque. A JSON text payload avoids forcing a caller's
+            # machine-number parser to round/overflow numbers inside receipts.
+            # Import also accepts the earlier direct-object state representation.
+            return 200, {'track': 'tablekeeper', 'format_version': 1,
+                         'state': {'encoding': 'tablekeeper-json-v1', 'payload': dumps(self.state)}}
         if method == 'POST' and path == '/_test/import':
             replacement = imported_state(body)
             self.state = replacement
@@ -297,12 +306,12 @@ class Service:
             if hours:
                 local, close = hours
                 zone = restaurant['timezone']
-                closing = close.replace(tzinfo=ZoneInfo(zone), fold=0).astimezone(UTC)
+                closing = fixed_instant(close, zone)
                 while local < close:
                     try:
                         start = resolve(local, zone)
-                        if restaurant['reservation_duration_minutes'] * 60 <= (closing - start).total_seconds():
-                            end = start + timedelta(minutes=restaurant['reservation_duration_minutes'])
+                        if restaurant['reservation_duration_minutes'] <= (closing - start).total_seconds() / 60:
+                            end = start + timedelta(minutes=int(restaurant['reservation_duration_minutes']))
                             available = []
                             for table in restaurant['tables']:
                                 candidate = {'restaurant_id': restaurant['id'], 'table_id': table['id'], 'status': 'confirmed',
@@ -313,7 +322,10 @@ class Service:
                     except APIError as exc:
                         if exc.code != 'invalid_local_time':
                             raise
-                    local += timedelta(minutes=min(restaurant['slot_minutes'], 1440))
+                    remaining_minutes = int((close - local).total_seconds() // 60)
+                    if restaurant['slot_minutes'] >= remaining_minutes:
+                        break
+                    local += timedelta(minutes=int(restaurant['slot_minutes']))
             return 200, {'restaurant_id': restaurant['id'], 'date': query['date'], 'timezone': restaurant['timezone'], 'slots': slots}
         uid = self.user(headers)
         if method == 'POST' and path in ('/reservations', '/reservation-moves'):

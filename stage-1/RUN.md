@@ -22,11 +22,19 @@ copies a coherent snapshot under the same lock.
 `domain.py` centralizes JSON field validation, slot rules, half-open overlap,
 scrypt password hashes and timezone conversion. Wall-clock starts resolve to the
 first DST occurrence; nonexistent starts are rejected. Durations and overlap
-comparisons use UTC instants, and responses convert back to restaurant local time.
+comparisons use fixed-offset absolute instants, and responses convert back to
+restaurant local time. Slot enumeration stops at the closing bound before adding
+another step, including on the last supported calendar day. Boundary local dates
+can remain valid even when their intermediate UTC year would be outside 1..9999.
 `service.py` owns state and endpoint behavior; `server.py` owns HTTP parsing and
-error envelopes. Test controls are enabled without authentication as required.
+error envelopes. `json_value.py` preserves decimal JSON numbers exactly, including
+large exponents, through request comparison, responses and state transfer without
+expanding powers of ten. Test controls are enabled without authentication as required.
 
 Exports include password hashes and bearer tokens. Treat them as private data.
+Their opaque state contains JSON text so ordinary caller JSON libraries do not
+round large receipt numbers; import accepts both this representation and the
+earlier direct-object snapshot representation.
 Import preserves those tokens, booking identities and original retry responses.
 Reset clears accounts, sessions, reservations and receipts.
 
