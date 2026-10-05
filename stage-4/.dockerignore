@@ -7,6 +7,8 @@
 !policies.py
 !history.py
 !state.py
+!seating.py
+!agreements.py
 !public/
 !public/index.html
 !public/app.js

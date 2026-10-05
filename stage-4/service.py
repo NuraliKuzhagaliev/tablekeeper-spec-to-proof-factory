@@ -14,6 +14,8 @@ from history import changes, entry, native_history, public
 from json_value import add_numbers, dumps
 from policies import applicable_terms, complete_policy, decided_booking, rules_config
 from state import empty_state, fixture_state, imported_state, restaurant_from_fixture
+from seating import assigned, closed, closure_request, solve
+from agreements import amendment_controls
 
 
 def new_id(prefix):
@@ -102,7 +104,8 @@ class Service:
     def ensure_available(self, candidates, excluded=()):
         others = [record for reference, record in self.state['reservations'].items() if reference not in excluded]
         for index, candidate in enumerate(candidates):
-            if any(overlaps(candidate, other) for other in others + candidates[:index]):
+            if (closed(candidate, self.state['closures'][candidate['restaurant_id']])
+                    or any(overlaps(candidate, other) for other in others + candidates[:index])):
                 fail('table_unavailable', 409)
 
     def build_reservation(self, uid, restaurant, body, pending=()):
@@ -120,21 +123,21 @@ class Service:
         self.state['reservations'].update({record['reference']: record for record in candidates})
         self.state['histories'].update(histories)
 
-    def publish_changes(self, candidates, event='changed'):
+    def publish_changes(self, candidates, event='changed', mark_exceptions=True, plan_id=None):
         changed = {record['reference']: record for record in candidates
                    if record['revision'] != self.state['reservations'][record['reference']]['revision']}
         histories = {}
         for reference, candidate in changed.items():
             history = copy.deepcopy(self.state['histories'][reference])
             history['entries'].append(entry(history, self.state['restaurants'][candidate['restaurant_id']],
-                                            self.state['reservations'][reference], candidate, event))
+                                            self.state['reservations'][reference], candidate, event, plan_id))
             histories[reference] = history
         agreements = {}
         for sid, agreement in self.state['series'].items():
             if any(occurrence['reference'] in changed for occurrence in agreement['occurrences']):
                 replacement = copy.deepcopy(agreement)
                 replacement['revision'] += 1
-                if event == 'changed':
+                if event == 'changed' and mark_exceptions:
                     for occurrence in replacement['occurrences']:
                         if occurrence['reference'] in changed:
                             occurrence['exception'] = True
@@ -147,7 +150,8 @@ class Service:
     def series_response(self, agreement, pending=()):
         records = {**self.state['reservations'], **{record['reference']: record for record in pending}}
         return {key: agreement[key] for key in ('series_id', 'revision', 'interval_weeks')} | {
-            'occurrences': [{**occurrence, 'reservation': public(records[occurrence['reference']])}
+            'occurrences': [{**{key: occurrence[key] for key in ('index', 'reference', 'exception')},
+                             'reservation': public(records[occurrence['reference']])}
                             for occurrence in agreement['occurrences']]}
 
     def adopt(self, uid, body):
@@ -176,13 +180,70 @@ class Service:
             generated.append(candidate)
         agreement = {'series_id': new_id('series_'), 'user_id': uid, 'restaurant_id': restaurant['id'],
                      'revision': 1, 'interval_weeks': interval,
-                     'occurrences': [{'index': index, 'reference': record['reference'], 'exception': False}
+                     'occurrences': [{'index': index, 'reference': record['reference'], 'exception': False,
+                                      'scheduled_date': record['starts_at_local'][:10]}
                                      for index, record in enumerate([anchor, *generated])]}
         response = self.series_response(agreement, generated)
         self.publish_created(generated)
         self.state['series'][agreement['series_id']] = agreement
         self.state['restaurant_revisions'][restaurant['id']] += 1
         return response
+
+    def preview(self, restaurant, body):
+        closure = closure_request(restaurant, body)
+        result = solve(restaurant, list(self.state['reservations'].values()), self.state['closures'][restaurant['id']], closure)
+        response = {'plan_id': new_id('plan_'), 'restaurant_revision': self.state['restaurant_revisions'][restaurant['id']],
+                    'closure': closure, **result}
+        self.state['plans'][response['plan_id']] = {'restaurant_id': restaurant['id'], 'response': copy.deepcopy(response), 'applied': False,
+                'originals': [copy.deepcopy(public(self.state['reservations'][item['reference']])) for item in result['assignments']]}
+        return response
+
+    def apply_plan(self, restaurant, plan_id):
+        plan = self.state['plans'].get(plan_id)
+        if plan is None or plan['restaurant_id'] != restaurant['id']:
+            fail('not_found', 404)
+        if plan['applied']:
+            fail('plan_already_applied', 409)
+        snapshot = plan['response']
+        if snapshot['restaurant_revision'] != self.state['restaurant_revisions'][restaurant['id']]:
+            fail('stale_plan', 409)
+        candidates = []
+        for assignment in snapshot['assignments']:
+            original = self.state['reservations'][assignment['reference']]
+            candidate = assigned(original, assignment['table_ids'])
+            if assignment['changed']:
+                candidate['revision'] += 1
+            candidates.append(candidate)
+        self.ensure_available(candidates, [record['reference'] for record in candidates])
+        if any(closed(record, [snapshot['closure']]) for record in candidates):
+            fail('table_unavailable', 409)
+        self.publish_changes(candidates, 'reassigned', mark_exceptions=False, plan_id=plan_id)
+        self.state['closures'][restaurant['id']].append({**snapshot['closure'], 'plan_id': plan_id})
+        plan['applied'] = True
+        self.state['restaurant_revisions'][restaurant['id']] += 1
+        return {'plan_id': plan_id, 'restaurant_revision': self.state['restaurant_revisions'][restaurant['id']],
+                'reservations': [public(record) for record in candidates]}
+
+    def amend_series(self, uid, sid, body):
+        agreement = self.state['series'].get(sid)
+        if agreement is None or agreement['user_id'] != uid:
+            fail('not_found', 404)
+        expected, first, clock = amendment_controls(body, len(agreement['occurrences']))
+        if expected != agreement['revision']:
+            fail('stale_revision', 409)
+        candidates = []
+        for occurrence in agreement['occurrences'][first:]:
+            original = self.state['reservations'][occurrence['reference']]
+            if original['status'] == 'cancelled' or occurrence['exception']:
+                continue
+            local = occurrence['scheduled_date'] + 'T' + clock
+            # Collective agreement no-ops do not require the diner cutoff.
+            candidates.append(copy.deepcopy(original) if local == original['starts_at_local']
+                              else self.amended(original, {'starts_at_local': local}))
+        self.ensure_available(candidates, [record['reference'] for record in candidates])
+        if self.publish_changes(candidates, mark_exceptions=False):
+            self.state['restaurant_revisions'][agreement['restaurant_id']] += 1
+        return self.series_response(self.state['series'][sid])
 
     def availability(self, query):
         if any(key not in query for key in ('restaurant_id', 'date', 'party_size')):
@@ -212,7 +273,8 @@ class Service:
                         def free(selection):
                             candidate = {'restaurant_id': restaurant['id'], 'table_ids': selection, 'status': 'confirmed',
                                          'starts_at': timestamp(start, zone), 'ends_at': timestamp(end, zone)}
-                            return not any(overlaps(candidate, record) for record in self.state['reservations'].values())
+                            return (not closed(candidate, self.state['closures'][restaurant['id']])
+                                    and not any(overlaps(candidate, record) for record in self.state['reservations'].values()))
                         for table in restaurant['tables']:
                             capacity, no_overlap = table['capacity'] >= count, free([table['id']])
                             if capacity and no_overlap:
@@ -273,6 +335,8 @@ class Service:
         if method == 'GET' and path == '/restaurants':
             return 200, {'restaurants': [{key: restaurant[key] for key in ('id', 'name', 'timezone')} for restaurant in self.state['restaurants'].values()]}
         policy_path = re.fullmatch('/restaurants/([^/]+)/policies', path)
+        replan_path = re.fullmatch('/restaurants/([^/]+)/replans(?:/([^/]+)/apply)?', path)
+        series_amend_path = re.fullmatch('/series/([^/]+)/amend', path)
         if method == 'GET' and policy_path:
             restaurant = self.restaurant(policy_path[1])
             return 200, {'policies': self.state['policies'][restaurant['id']]}
@@ -295,18 +359,25 @@ class Service:
                 fail('not_found', 404)
             return 200, self.series_response(agreement)
         uid = self.user(headers)
-        if method == 'POST' and (path in ('/reservations', '/reservation-moves', '/series') or policy_path):
+        if method == 'POST' and (path in ('/reservations', '/reservation-moves', '/series') or policy_path or replan_path or series_amend_path):
             scope, previous = self.receipt(uid, path, body, headers)
             if previous:
                 return 200, previous['response']
-            if policy_path:
-                restaurant = self.restaurant(policy_path[1])
+            if policy_path or replan_path:
+                restaurant = self.restaurant((policy_path or replan_path)[1])
                 if uid not in restaurant['manager_user_ids']:
                     fail('forbidden', 403)
-                policy = complete_policy(restaurant, body)
-                policy['policy_version'] = len(self.state['policies'][restaurant['id']]) + 1
-                response = policy
-                self.state['policies'][restaurant['id']].append(policy)
+                if replan_path:
+                    response = (self.apply_plan(restaurant, identifier(replan_path[2])) if replan_path[2]
+                                else self.preview(restaurant, body))
+                else:
+                    policy = complete_policy(restaurant, body)
+                    policy['policy_version'] = len(self.state['policies'][restaurant['id']]) + 1
+                    response = policy
+                    self.state['policies'][restaurant['id']].append(policy)
+                    self.state['restaurant_revisions'][restaurant['id']] += 1
+            elif series_amend_path:
+                response = self.amend_series(uid, identifier(series_amend_path[1]), body)
             elif path == '/series':
                 response = self.adopt(uid, body)
             elif path == '/reservations':
@@ -315,6 +386,7 @@ class Service:
                 self.ensure_available([candidate])
                 response = public(candidate)
                 self.publish_created([candidate])
+                self.state['restaurant_revisions'][restaurant['id']] += 1
             else:
                 moves = body.get('moves')
                 if type(moves) is not list or not 1 <= len(moves) <= 8:
@@ -352,10 +424,12 @@ class Service:
                 self.cutoff(original)
                 candidate = {**original, 'status': 'cancelled', 'revision': original['revision'] + 1}
                 self.publish_changes([candidate], 'cancelled')
+                self.state['restaurant_revisions'][original['restaurant_id']] += 1
                 return 200, public(candidate)
             if method == 'PATCH' and not reservation_path[2]:
                 candidate = self.amended(original, body)
                 self.ensure_available([candidate], [original['reference']])
-                self.publish_changes([candidate])
+                if self.publish_changes([candidate]):
+                    self.state['restaurant_revisions'][original['restaurant_id']] += 1
                 return 200, public(candidate)
         fail('not_found', 404)

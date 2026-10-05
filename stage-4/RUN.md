@@ -1,9 +1,9 @@
-# Tablekeeper Stage 3
+# Tablekeeper Stage 4
 
 From this directory, build and start the standalone HTTP service:
 
 ```sh
-docker build -t tablekeeper-stage-3 . && docker run --rm -e PORT=8080 -p 8080:8080 tablekeeper-stage-3
+docker build -t tablekeeper-stage-4 . && docker run --rm -e PORT=8080 -p 8080:8080 tablekeeper-stage-4
 ```
 
 The service listens on `0.0.0.0`, defaults to port 8080, and responds to
@@ -88,12 +88,14 @@ Each index is validated completely before the next, and nothing publishes until
 every occurrence succeeds. Real individual changes mark permanent exceptions;
 cancellation retains membership without newly marking an exception. Collective
 moves commit histories/terms/revisions and at most one increment per affected series.
-The private restaurant counter increments only for Stage 3 adoption and batches
-with real changes; no later-stage general-counter behavior is implemented.
+Restaurant counters start at 0 after reset, including seeded bookings. In this
+stage they increment once for a new booking, real individual amendment, first
+cancellation, policy publication, adoption, changed batch, changed series amendment
+or first plan application. Previews, no-ops, failures and replays leave them unchanged.
 
 `state.py` validates the entire fixture or portable snapshot before replacement,
 including retained policy snapshots, native history evolution, series membership,
-counters and all four receipt families. Both accepted Stage 1 and Stage 2 exports
+counters and all seven receipt families. Accepted Stage 1, Stage 2 and Stage 3 exports
 remain importable unchanged. Missing current metadata initializes revision 1 and
 fixture policy 0; original receipt JSON is never enriched. Legacy history returns
 `provenance: {"kind":"legacy_baseline","known_state":...}` and empty `entries`.
@@ -104,6 +106,56 @@ Future actual changes/cancellation start at seq 1. Native histories use
 get a creation event at actual reset initialization; cancelled fixture seeds use
 `fixture_baseline` with their known state and no fabricated prior creation/cancellation.
 Known native history and all timestamps are preserved through subsequent imports.
+
+Stage 4 adds manager-only `POST /restaurants/{id}/replans` previews and
+`POST /restaurants/{id}/replans/{plan_id}/apply`, both with idempotency keys.
+`seating.py` is a pure optimizer: it considers every confirmed interval overlapping
+the proposed closure, keeps all other bookings fixed for their full intervals, and
+uses each considered booking's own immutable accepted capacities. Singles and
+declared pairs retain full fixture ranks. The exact lexicographic objective is
+changed bookings, total unused capacity, then the entire reference-ordered rank
+vector. Precomputed member masks/interval compatibility and admissible independent
+lower bounds prune the bounded search without changing its optimum. Up to six
+tables, four declared pairs and six considered bookings are supported; larger
+inputs give `planning_limit`. No binary-float arithmetic enters the objective.
+
+Preview stores its captured revision, assignments, original considered records and
+exact response without changing seating, closures, booking history or counters.
+Application checks the receipt first, then already-applied status, then restaurant
+revision staleness. It atomically installs the closure, all assignments, moved-only
+booking revisions/history, one increment per affected series, one restaurant
+increment and the original receipt. A zero-moved application still installs a
+closure and increments its restaurant once. Operator repair ignores diner cutoff,
+retains accepted terms/times/party sizes and does not mark or clear exceptions.
+`reassigned` history always names complete `table_ids` before/after lists plus
+`plan_id`, even for a single-to-single move. Manager permission does not confer
+access to another diner's ordinary lookup/history/decision.
+
+Applied closures exclude every selected member in availability, explanation,
+ordinary/batch booking validation, adoption and collective amendments. Intervals
+are half-open and compare absolute instants. Closure fractions retain exact decimal
+precision beyond microseconds; supplied offset/fraction spelling survives receipts
+and transfer. Existing IANA/DST and arbitrary-calendar-date behavior remains.
+
+`POST /series/{series_id}/amend` is an owner-only keyed write. Required controls are
+positive `expected_revision`, `from_index` in the series range, and bare `HH:MM`
+`local_time`. A stale series revision fails before any occurrence work. Cancelled
+and permanent-exception members are excluded. Eligible members use immutable
+original scheduled dates with their current table selections. Collective no-ops
+retain all terms/revisions/history and do not check the cutoff; real changes check
+old accepted cutoff before the resulting policy. Index-ordered non-occupancy errors
+precede final member/closure conflicts. The whole change commits together with one
+series/restaurant increment only when something changed, without new exceptions.
+Empty/no-op successes still record their exact successful response for replay.
+
+Stage 1, 2 and 3 populated exports import unchanged. Stage 3 original scheduled dates
+are recovered only from its preserved successful adoption response; the edited
+current anchor is never used to invent a schedule. Native scheduled-date metadata
+is immutable and checked against that adoption truth during import. Known prior
+restaurant counters are retained; missing counters initialize to 0 without counting
+unobserved past actions. Missing legacy managers stay empty. Native Stage 4 snapshots
+also retain plans/applied flags, closure provenance, all seven receipt families,
+reassigned events and all revisions; invalid replacements publish nothing.
 
 Exact feasible pair-capacity sums remain required, including disparate exponents.
 The fixture/legacy numeric domain is unbounded: the exact sum of 10^N and 1 needs

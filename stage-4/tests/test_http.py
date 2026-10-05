@@ -285,3 +285,42 @@ class HTTPTests(unittest.TestCase):
                 headers['Idempotency-Key'] = 'adjacent'
                 self.assertEqual(self.call('/reservations', body=request, headers=headers)[0], 201)
                 self.assertEqual(len(self.call('/reservations', headers={'Authorization': 'Bearer ' + token})[1]['reservations']), 2)
+
+    def test_fifty_http_preview_apply_and_series_amend_retries_snapshot_continuity(self):
+        data = fixture('UTC')
+        data['restaurants'][0]['manager_user_ids'] = ['alice']
+        self.assertEqual(self.call('/_test/reset', body=data)[0], 204)
+        token = self.login()
+        auth = {'Authorization': 'Bearer ' + token}
+        anchor = self.call('/reservations', body={'restaurant_id': 'r', 'table_id': 't1', 'starts_at_local': '2032-06-03T18:00', 'party_size': 4},
+                           headers={**auth, 'Idempotency-Key': 'booking'})[1]
+        agreement = self.call('/series', body={'anchor_reference': anchor['reference'], 'count': 3, 'interval_weeks': 1},
+                              headers={**auth, 'Idempotency-Key': 'adopt'})[1]
+        def retries(path, body, key):
+            barrier = threading.Barrier(50)
+            def request(_):
+                barrier.wait()
+                return self.call(path, body=body, headers={**auth, 'Idempotency-Key': key})
+            with ThreadPoolExecutor(max_workers=50) as workers:
+                results = list(workers.map(request, range(50)))
+            self.assertEqual(sum(status == 201 for status, _, _ in results), 1)
+            self.assertEqual(sum(status == 200 for status, _, _ in results), 49)
+            self.assertTrue(all(response == results[0][1] for _, response, _ in results))
+            return results[0][1]
+        preview_body = {'table_id': 't1', 'from': '2032-06-03T18:00:00Z', 'to': '2032-06-17T20:00:00Z'}
+        plan = retries('/restaurants/r/replans', preview_body, 'preview')
+        apply_path = '/restaurants/r/replans/' + plan['plan_id'] + '/apply'
+        applied = retries(apply_path, {}, 'apply')
+        current = self.call('/series/' + agreement['series_id'], headers=auth)[1]
+        amend_path = '/series/' + agreement['series_id'] + '/amend'
+        amend_body = {'expected_revision': current['revision'], 'from_index': 0, 'local_time': '20:00'}
+        changed = retries(amend_path, amend_body, 'amend')
+        self.assertTrue(all(item['reservation']['table_ids'] == ['t2'] for item in changed['occurrences']))
+        snapshot = self.call('/_test/export')[1]
+        server.service = Service()
+        self.assertEqual(self.call('/_test/import', body=snapshot)[0], 204)
+        self.assertEqual(self.call('/restaurants/r/replans', body=preview_body, headers={**auth, 'Idempotency-Key': 'preview'})[:2], (200, plan))
+        self.assertEqual(self.call(apply_path, body={}, headers={**auth, 'Idempotency-Key': 'apply'})[:2], (200, applied))
+        self.assertEqual(self.call(amend_path, body=amend_body, headers={**auth, 'Idempotency-Key': 'amend'})[:2], (200, changed))
+        status, error, _ = self.call(apply_path, body={}, headers={**auth, 'Idempotency-Key': 'other'})
+        self.assertEqual((status, error['error']['code']), (409, 'plan_already_applied'))

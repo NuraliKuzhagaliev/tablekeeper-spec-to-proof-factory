@@ -9,14 +9,17 @@ from domain import (APIError, UTC, booking, email, fail, field, hash_password, i
                     overlaps, positive_integer, read_timestamp, same_json, stored_booking_fields,
                     timestamp, valid_hash)
 from history import baseline_history, changes, native_history, public
-from json_value import dumps, is_number, loads
+from json_value import add_numbers, dumps, is_number, loads
 from policies import complete_policy, fixture_terms, opening_hours, rules_config, terms
+from agreements import amendment_controls, initialize_schedules
+from seating import assigned, closed, closure_request, subtract
 
 BASE_KEYS = {'users', 'restaurants', 'reservations', 'tokens', 'receipts'}
+STAGE3_KEYS = BASE_KEYS | {'policies', 'histories', 'series', 'restaurant_revisions'}
 
 
 def empty_state():
-    return {key: {} for key in (*sorted(BASE_KEYS), 'policies', 'histories', 'series', 'restaurant_revisions')}
+    return {key: {} for key in (*sorted(BASE_KEYS), 'policies', 'histories', 'series', 'restaurant_revisions', 'closures', 'plans')}
 
 
 def restaurant_from_fixture(value):
@@ -86,6 +89,7 @@ def fixture_state(body):
             fail()
         state['restaurants'][rid] = restaurant
         state['policies'][rid], state['restaurant_revisions'][rid] = [], 0
+        state['closures'][rid] = []
     for item in field(body, 'reservations', list):
         if type(item) is not dict:
             fail('malformed_request', 400)
@@ -126,7 +130,7 @@ def accepted_snapshot(state, restaurant, value):
     return copy.deepcopy(value)
 
 
-def reservation_record(state, record, owner=None, migrate=False, historical=False):
+def reservation_record(state, record, owner=None, migrate=False, historical=False, allow_cancelled=False):
     if type(record) is not dict or not re.fullmatch('[A-Z0-9]{6,12}', record.get('reference', '')):
         fail()
     restaurant = state['restaurants'][record['restaurant_id']]
@@ -145,7 +149,7 @@ def reservation_record(state, record, owner=None, migrate=False, historical=Fals
         fail()
     identifier(record['reservation_id'])
     read_timestamp(record['created_at'])
-    if record['status'] not in ('confirmed', 'cancelled') or historical and record['status'] != 'confirmed':
+    if record['status'] not in ('confirmed', 'cancelled') or historical and not allow_cancelled and record['status'] != 'confirmed':
         fail()
     if not migrate and ('accepted_terms' not in record or 'revision' not in record) and not historical:
         fail()
@@ -174,7 +178,8 @@ def validate_history(state, reference, history):
             fail()
     last_at = None
     for index, item in enumerate(history['entries'], 1):
-        if type(item) is not dict or set(item) != {'seq', 'at', 'event', 'changes', 'revision', 'accepted_terms'}:
+        if type(item) is not dict or set(item) != ({'seq', 'at', 'event', 'changes', 'revision', 'accepted_terms'}
+                                                   | ({'plan_id'} if item.get('event') == 'reassigned' else set())):
             fail()
         if positive_integer(item['seq']) != index:
             fail()
@@ -183,7 +188,7 @@ def validate_history(state, reference, history):
             fail()
         last_at = at
         event = item['event']
-        if (event not in ('created', 'changed', 'cancelled') or type(item['changes']) is not list
+        if (event not in ('created', 'changed', 'cancelled', 'reassigned') or type(item['changes']) is not list
                 or previous is None and event != 'created' or previous is not None and (event == 'created' or previous['status'] == 'cancelled')):
             fail()
         revision = positive_integer(item['revision'])
@@ -195,6 +200,16 @@ def validate_history(state, reference, history):
         if event == 'cancelled':
             if item['changes'] or not same_json(accepted, previous['accepted_terms']):
                 fail()
+        elif event == 'reassigned':
+            plan = state['plans'][item['plan_id']]
+            assignment = next((value for value in plan['response']['assignments'] if value['reference'] == reference), None)
+            if assignment is None:
+                fail()
+            expected_changes = [{'field': 'table_ids', 'from': list(candidate['table_ids']), 'to': assignment['table_ids']}]
+            if (not plan['applied'] or not assignment['changed'] or plan['restaurant_id'] != current['restaurant_id']
+                    or not same_json(accepted, previous['accepted_terms']) or not same_json(item['changes'], expected_changes)):
+                fail()
+            candidate = assigned(candidate, assignment['table_ids'])
         else:
             for change in item['changes']:
                 if type(change) is not dict or set(change) != {'field', 'from', 'to'}:
@@ -222,6 +237,69 @@ def validate_history(state, reference, history):
         fail()
 
 
+def validate_plans(state):
+    if set(state['closures']) != set(state['restaurants']):
+        fail()
+    applied = set()
+    for rid, closures in state['closures'].items():
+        if type(closures) is not list:
+            fail()
+        for closure in closures:
+            if type(closure) is not dict or set(closure) != {'table_id', 'from', 'to', 'plan_id'}:
+                fail()
+            expected = closure_request(state['restaurants'][rid], closure)
+            plan = state['plans'][closure['plan_id']]
+            if (closure['plan_id'] in applied or not plan['applied'] or plan['restaurant_id'] != rid
+                    or not same_json(expected, plan['response']['closure'])):
+                fail()
+            applied.add(closure['plan_id'])
+    for pid, plan in state['plans'].items():
+        identifier(pid)
+        if type(plan) is not dict or set(plan) != {'restaurant_id', 'response', 'applied', 'originals'} or type(plan['applied']) is not bool:
+            fail()
+        restaurant = state['restaurants'][plan['restaurant_id']]
+        response = plan['response']
+        if (type(response) is not dict or set(response) != {'plan_id', 'restaurant_revision', 'closure', 'assignments', 'moved_count', 'unused_seats'}
+                or response['plan_id'] != pid or type(response['assignments']) is not list or type(plan['originals']) is not list
+                or len(response['assignments']) != len(plan['originals']) or len(plan['originals']) > 6):
+            fail()
+        captured = positive_integer(response['restaurant_revision'], zero=True)
+        if captured > state['restaurant_revisions'][restaurant['id']] or plan['applied'] != (pid in applied):
+            fail()
+        if plan['applied'] and captured >= state['restaurant_revisions'][restaurant['id']]:
+            fail()
+        if not same_json(closure_request(restaurant, response['closure']), response['closure']):
+            fail()
+        references, moved, waste = [], 0, 0
+        for original, assignment in zip(plan['originals'], response['assignments']):
+            normalized = reservation_record(state, original, historical=True)
+            current = state['reservations'][normalized['reference']]
+            if (normalized['restaurant_id'] != restaurant['id'] or type(assignment) is not dict
+                    or set(assignment) != {'reference', 'table_ids', 'changed'} or type(assignment['changed']) is not bool
+                    or assignment['reference'] != normalized['reference'] or normalized['revision'] > current['revision']
+                    or any(normalized[key] != current[key] for key in ('reservation_id', 'created_at'))):
+                fail()
+            if not plan['applied'] and captured == state['restaurant_revisions'][restaurant['id']] and not same_json(original, public(current)):
+                fail()
+            selected = booking(rules_config(restaurant, normalized['accepted_terms']),
+                               {'table_ids': assignment['table_ids'], 'starts_at_local': normalized['starts_at_local'], 'party_size': normalized['party_size']})
+            if not same_json(selected['table_ids'], assignment['table_ids']):
+                fail()
+            changed = set(selected['table_ids']) != set(normalized['table_ids'])
+            if changed != assignment['changed']:
+                fail()
+            capacity = normalized['accepted_terms']['capacities'][selected['table_ids'][0]]
+            if len(selected['table_ids']) == 2:
+                capacity = add_numbers(capacity, normalized['accepted_terms']['capacities'][selected['table_ids'][1]])
+            waste = add_numbers(waste, subtract(capacity, normalized['party_size']))
+            moved += changed
+            references.append(assignment['reference'])
+        if references != sorted(set(references)) or not same_json(moved, response['moved_count']) or not same_json(waste, response['unused_seats']):
+            fail()
+    if any(closed(record, state['closures'][record['restaurant_id']]) for record in state['reservations'].values()):
+        fail()
+
+
 def validate_receipts(state):
     for key, receipt in state['receipts'].items():
         scope = json.loads(key)
@@ -232,6 +310,27 @@ def validate_receipts(state):
             fail()
         path, response = scope[2], receipt['response']
         policy_path = re.fullmatch('/restaurants/([^/]+)/policies', path)
+        preview_path = re.fullmatch('/restaurants/([^/]+)/replans', path)
+        apply_path = re.fullmatch('/restaurants/([^/]+)/replans/([^/]+)/apply', path)
+        amend_path = re.fullmatch('/series/([^/]+)/amend', path)
+        if preview_path or apply_path:
+            rid = (preview_path or apply_path)[1]
+            if scope[0] not in state['restaurants'][rid]['manager_user_ids']:
+                fail()
+            plan = state['plans'][response['plan_id']]
+            if plan['restaurant_id'] != rid:
+                fail()
+            if preview_path:
+                if (not same_json(response, plan['response'])
+                        or not same_json(closure_request(state['restaurants'][rid], receipt['body']), response['closure'])):
+                    fail()
+            else:
+                expected = {'plan_id': response['plan_id'], 'restaurant_revision': plan['response']['restaurant_revision'] + 1,
+                            'reservations': [assigned(original, assignment['table_ids']) | {'revision': original['revision'] + assignment['changed']}
+                                             for original, assignment in zip(plan['originals'], plan['response']['assignments'])]}
+                if apply_path[2] != response['plan_id'] or not plan['applied'] or not same_json(expected, response):
+                    fail()
+            continue
         if policy_path:
             restaurant = state['restaurants'][policy_path[1]]
             version = positive_integer(response['policy_version'])
@@ -241,22 +340,27 @@ def validate_receipts(state):
             if not same_json(response, expected) or not same_json(complete_policy(restaurant, receipt['body']), {k: v for k, v in expected.items() if k != 'policy_version'}):
                 fail()
             continue
-        if path == '/series':
+        if path == '/series' or amend_path:
             agreement = state['series'][response['series_id']]
             if (agreement['user_id'] != scope[0] or set(response) != {'series_id', 'revision', 'interval_weeks', 'occurrences'}
-                    or response['revision'] != 1 or response['interval_weeks'] != agreement['interval_weeks']
+                    or positive_integer(response['revision']) > agreement['revision'] or path == '/series' and response['revision'] != 1
+                    or amend_path and amend_path[1] != response['series_id'] or response['interval_weeks'] != agreement['interval_weeks']
                     or type(response['occurrences']) is not list or len(response['occurrences']) != len(agreement['occurrences'])):
                 fail()
             originals = []
             for index, occurrence in enumerate(response['occurrences']):
-                if (set(occurrence) != {'index', 'reference', 'exception', 'reservation'} or occurrence['index'] != index
-                        or occurrence['exception'] is not False or occurrence['reference'] != agreement['occurrences'][index]['reference']
+                if (set(occurrence) != {'index', 'reference', 'exception', 'reservation'} or positive_integer(occurrence['index'], zero=True) != index
+                        or type(occurrence['exception']) is not bool or path == '/series' and occurrence['exception'] is not False
+                        or occurrence['reference'] != agreement['occurrences'][index]['reference']
                         or occurrence['reservation']['reference'] != occurrence['reference']):
                     fail()
                 originals.append(occurrence['reservation'])
-            if (receipt['body'].get('anchor_reference') != originals[0]['reference']
-                    or receipt['body'].get('count') != len(originals) or receipt['body'].get('interval_weeks') != agreement['interval_weeks']):
+            if path == '/series' and (receipt['body'].get('anchor_reference') != originals[0]['reference']
+                    or positive_integer(receipt['body'].get('count')) != len(originals)
+                    or positive_integer(receipt['body'].get('interval_weeks')) != agreement['interval_weeks']):
                 fail()
+            if amend_path:
+                amendment_controls(receipt['body'], len(originals))
         elif path == '/reservations':
             originals = [response]
         elif path == '/reservation-moves':
@@ -266,7 +370,7 @@ def validate_receipts(state):
         else:
             fail()
         for original in originals:
-            normalized = reservation_record(state, original, historical=True)
+            normalized = reservation_record(state, original, historical=True, allow_cancelled=bool(amend_path))
             current = state['reservations'][normalized['reference']]
             if (current['user_id'] != scope[0] or any(normalized[name] != current[name] for name in ('reservation_id', 'restaurant_id', 'created_at'))
                     or normalized['revision'] > current['revision']):
@@ -282,10 +386,13 @@ def imported_state(body):
             if source['encoding'] != 'tablekeeper-json-v1' or type(source['payload']) is not str:
                 fail()
             source = loads(source['payload'])
-        if type(source) is not dict or set(source) not in (BASE_KEYS, set(empty_state())) or any(type(value) is not dict for value in source.values()):
+        if type(source) is not dict or set(source) not in (BASE_KEYS, STAGE3_KEYS, set(empty_state())) or any(type(value) is not dict for value in source.values()):
             fail()
         legacy = set(source) == BASE_KEYS
+        earlier = set(source) != set(empty_state())
         state = copy.deepcopy(source)
+        if earlier:
+            state.update(closures={}, plans={})
         if legacy:
             state.update(policies={}, histories={}, series={}, restaurant_revisions={})
         emails, reservation_ids = set(), set()
@@ -306,6 +413,8 @@ def imported_state(body):
             if not same_json(shape, restaurant) or normalized['id'] != rid:
                 fail()
             state['restaurants'][rid] = normalized
+            if earlier:
+                state['closures'][rid] = []
             if legacy:
                 state['policies'][rid], state['restaurant_revisions'][rid] = [], 0
         if set(state['policies']) != set(state['restaurants']) or set(state['restaurant_revisions']) != set(state['restaurants']):
@@ -328,6 +437,7 @@ def imported_state(body):
         records = list(state['reservations'].values())
         if any(overlaps(a, b) for index, a in enumerate(records) for b in records[index + 1:]):
             fail()
+        validate_plans(state)
         if set(state['histories']) != set(state['reservations']):
             fail()
         for reference, history in state['histories'].items():
@@ -343,7 +453,7 @@ def imported_state(body):
             if interval > 4 or type(agreement['occurrences']) is not list or not 2 <= len(agreement['occurrences']) <= 12:
                 fail()
             for index, occurrence in enumerate(agreement['occurrences']):
-                if (type(occurrence) is not dict or set(occurrence) != {'index', 'reference', 'exception'}
+                if (type(occurrence) is not dict or set(occurrence) != ({'index', 'reference', 'exception'} | (set() if earlier else {'scheduled_date'}))
                         or type(occurrence['exception']) is not bool or positive_integer(occurrence['index'], zero=True) != index
                         or occurrence['reference'] in adopted):
                     fail()
@@ -351,6 +461,7 @@ def imported_state(body):
                 if record['user_id'] != agreement['user_id'] or record['restaurant_id'] != agreement['restaurant_id']:
                     fail()
                 adopted.add(occurrence['reference'])
+            initialize_schedules(state, agreement)
         for token, uid in state['tokens'].items():
             if type(token) is not str or not token or uid not in state['users']:
                 fail()

@@ -105,6 +105,10 @@ def add_numbers(left, right):
     if type(left) is int and type(right) is int:
         return left + right
     a, b = JSONNumber.from_value(left), JSONNumber.from_value(right)
+    if a.digits == '0':
+        return b.model_integer() if b.is_integer else b
+    if b.digits == '0':
+        return a.model_integer() if a.is_integer else a
     scale = min(a.scale, b.scale)
     a_coefficient = int(a.digits + '0' * (a.scale - scale))
     b_coefficient = int(b.digits + '0' * (b.scale - scale))

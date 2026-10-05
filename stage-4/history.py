@@ -24,13 +24,17 @@ def changes(before, after):
     return copy.deepcopy(result)
 
 
-def entry(history, restaurant, before, after, event):
+def entry(history, restaurant, before, after, event, plan_id=None):
     now = datetime.now(UTC)
     if history['entries']:
         now = max(now, read_timestamp(history['entries'][-1]['at']))
-    return {'seq': len(history['entries']) + 1, 'at': timestamp(now, restaurant['timezone']), 'event': event,
+    result = {'seq': len(history['entries']) + 1, 'at': timestamp(now, restaurant['timezone']), 'event': event,
             'changes': [] if event == 'cancelled' else changes(before, after),
             'revision': after['revision'], 'accepted_terms': copy.deepcopy(after['accepted_terms'])}
+    if event == 'reassigned':
+        result['changes'] = [{'field': 'table_ids', 'from': list(members(before)), 'to': list(members(after))}]
+        result['plan_id'] = plan_id
+    return result
 
 
 def native_history(restaurant, reservation):

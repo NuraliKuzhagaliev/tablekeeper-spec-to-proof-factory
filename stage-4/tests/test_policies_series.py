@@ -242,7 +242,7 @@ class PolicySeriesTests(unittest.TestCase):
         self.assertTrue(all(response == outcomes[0][1] for _, response in outcomes))
         self.assertEqual(len(self.s.state['series']), 1)
         self.assertEqual(len(self.s.state['reservations']), 3)
-        self.assertEqual(self.s.state['restaurant_revisions']['r'], 1)
+        self.assertEqual(self.s.state['restaurant_revisions']['r'], 2)
         self.error(lambda: self.call('POST', '/series', request, 'another-key'), 'already_in_series', 409)
 
     def test_parallel_policy_publication_versions_and_receipts(self):
@@ -282,7 +282,7 @@ class PolicySeriesTests(unittest.TestCase):
             refs = set(snapshot['reservations'])
             self.assertEqual(refs, set(snapshot['histories']))
             self.assertIn(len(refs), (1, 12))
-            self.assertEqual(snapshot['restaurant_revisions']['r'], 0 if len(refs) == 1 else 1)
+            self.assertEqual(snapshot['restaurant_revisions']['r'], 1 if len(refs) == 1 else 2)
             self.assertEqual(len(snapshot['series']), 0 if len(refs) == 1 else 1)
             if snapshot['series']:
                 agreement = next(iter(snapshot['series'].values()))
@@ -300,11 +300,11 @@ class PolicySeriesTests(unittest.TestCase):
         request = {'moves': [{'reference': item['reference'], 'party_size': 2} for item in one['occurrences'][:2]] +
                             [{'reference': two['occurrences'][0]['reference']}]}
         moved = self.call('POST', '/reservation-moves', request, 'batch')[1]
-        self.assertEqual(self.s.state['restaurant_revisions']['r'], 3)
+        self.assertEqual(self.s.state['restaurant_revisions']['r'], 5)
         self.assertEqual(self.call('GET', '/series/' + one['series_id'])[1]['revision'], 2)
         self.assertEqual(self.call('GET', '/series/' + two['series_id'])[1]['revision'], 1)
         self.assertEqual(self.call('POST', '/reservation-moves', request, 'noop')[1], moved)
-        self.assertEqual(self.s.state['restaurant_revisions']['r'], 3)
+        self.assertEqual(self.s.state['restaurant_revisions']['r'], 5)
         before = self.snapshot()
         bad = {'moves': [{'reference': anchor['reference'], 'table_id': 't2'},
                          {'reference': other['reference'], 'expected_revision': 999, 'party_size': False}]}
@@ -411,6 +411,15 @@ print(dumps({'snapshot':s.request('GET','/_test/export',{},{},{})[1],'token':tok
                 self.call('PATCH', '/reservations/' + current['reference'], {'party_size': 1})
                 self.assertEqual(self.history(current)['entries'][0]['event'], 'changed')
                 self.assertEqual(self.history(current)['entries'][0]['seq'], 1)
+                series_now = self.call('GET', '/series/' + agreement['series_id'])[1]
+                series_changed = self.call('POST', '/series/' + agreement['series_id'] + '/amend',
+                        {'expected_revision': series_now['revision'], 'from_index': 0, 'local_time': '22:00'}, 'upgrade-amend')[1]
+                self.assertEqual(series_changed['occurrences'][0], series_now['occurrences'][0])
+                self.assertEqual(series_changed['occurrences'][1]['reservation']['starts_at_local'], '2032-06-10T22:00')
+                self.assertEqual(self.s.state['restaurant_revisions']['r'], 3)
+                self.assertEqual(self.call('GET', '/restaurants/r')[1]['manager_user_ids'], [])
+                self.error(lambda: self.call('POST', '/restaurants/r/replans',
+                    {'table_id': 't1', 'from': '2032-06-03T18:00:00Z', 'to': '2032-06-03T19:00:00Z'}, 'not-manager'), 'forbidden', 403)
                 snapshot = self.snapshot()
                 self.call('POST', '/_test/import', snapshot)
                 self.assertEqual(self.snapshot(), snapshot)
