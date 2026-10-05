@@ -1,0 +1,69 @@
+{
+  "status": "OWNER_VERIFIED_COMMITTED_FROZEN",
+  "handoff_id": "EXP-S3-PROVENANCE-001",
+  "acceptance": "Independent verification required; this report is owner evidence only.",
+  "baseline_sha": "8ff03e10cd8fad43feee089aabbfa6d3a072e818",
+  "production_sha": "0ca5880272740494e541a903a49ea423c6e8ce2b",
+  "integrated_stage3_tree": "6db40e3e5b32431d5cb976f67b8be33c633da6ae",
+  "backend_production_sha": "64607e2a1e30e4c3effd78d7c9a8a39116dc861f",
+  "binding": "All seven tested runtime backend blobs match the committed backend and all three tested frontend blobs match the production commit. Earlier accepted Stage1 and Stage2 source remains unchanged.",
+  "systems_owner_provenance": {"regressions_reported_passed": 53, "official_isolated_cumulative_reported_passed": 152, "breakdown": [120, 25, 7], "final_owner_run_used_same_three_frontend_blobs": true, "source": "Systems Engineer final handoff; owner provenance only, not independent acceptance."},
+  "owned_production_paths": ["stage-3/public/index.html", "stage-3/public/app.js", "stage-3/public/styles.css"],
+  "tested_frontend_git_blobs": {
+    "index.html": "3fd4d0f3cd468500fbff9b5f1b0c994e2d2db20d",
+    "app.js": "3b7ae034782bad3f6e07bb26bb236857f0ea66f0",
+    "styles.css": "13ea8049783596b500c3501b65da030fd95a4963"
+  },
+  "tested_backend_git_blobs": {
+    "domain.py": "4f71d3488cda163a82ff189ea9fb40d7e6fccabf",
+    "service.py": "4a76f67f3b886b581b518b58771b48988b614ecf",
+    "server.py": "1d0354fa9f0dc653efa90259c482d5697ee21086",
+    "json_value.py": "2b471d0f332febce5663446150d5ec04aa7add45",
+    "history.py": "5b2c95f1128eaa0a1aedc5c8f45ca12497ad1cfd",
+    "policies.py": "006ece39f500902a544858ba82dcbb04e052903e",
+    "state.py": "8761bd4a2d06fe52b582c5155cfb56e285bff295"
+  },
+  "implemented": [
+    "Optional native keyboard disclosure beneath required lookup, with no new route, dependency or write action.",
+    "Server-ordered history with supplied local event timestamps, actual changed fields, complete single/pair labels and event-specific accepted terms.",
+    "Current accepted duration/cutoff and full terms snapshot, including cancelled reservations; availability capacity labels use offered server options.",
+    "Exact native, legacy_baseline and fixture_baseline provenance; supplied known_state remains a separate preserved-details card, without fabricated past events or timestamps.",
+    "Optional reads begin only on disclosure or explicit refresh; current user, lookup, detail and load generations guard all responses. Cancellation invalidates optional reads and refreshes an open disclosure once.",
+    "Partial/network/404/unreadable/invalid-shape failures stay inside disclosure; mismatched revisions or terms require an explicit reservation refresh.",
+    "All cumulative required hooks and server-authoritative conflict/uncertainty/retry behavior retained, including serialized single table_id requests and legacy receipt fallback."
+  ],
+  "owner_browser_results": {
+    "optional_groups_passed": 8,
+    "cumulative_groups_passed": 12,
+    "page_runtime_errors": 0,
+    "optional_cases": [
+      "Native single/pair creation, no-op and replay neutrality, actual field order and before/after labels, policy publication then amendment, old/current terms, cancellation and terminal history.",
+      "Held history and decision across a replacement reference and logout.",
+      "Network, 404, unreadable JSON, invalid opening-hours shape, partial responses and revision mismatch; explicit retry and required cancel remain usable.",
+      "Cancellation during held optional reads cannot restore the old snapshot.",
+      "Cancelled fixture baseline, empty history and accepted terms; disclosure-only reads without polling.",
+      "Published capacity values remain authoritative; held restaurant-label response cannot replace a different valid reference and its story.",
+      "Actual separate Stage 2 source export/import into Stage 3 between browser requests, lost pair response, unchanged body/key/token, original receipt JSON and subsequent first truthful event.",
+      "375px and 1280px pair-to-single history and accepted terms, same-second server sequence order, native keyboard disclosure/focus, local resources and no page overflow."
+    ],
+    "cumulative_cases": [
+      "Four required HTML routes; navigation, signup/login refusal and recovery, current user and logout.",
+      "Public browse, exact single/pair test cells and searched party binding, closed-day state and signed-out selection.",
+      "Unchanged single booking replay and changed-field identity, one effect and conflict form preservation.",
+      "Single/pair loss before and after commit, unchanged exact server retry and original confirmation.",
+      "Unreadable response uncertainty and delivered validation refusal.",
+      "Late restaurant details and availability cannot replace newer grid, labels or booking form.",
+      "Pair-member conflict refresh preserves inputs and cannot rebind a newer search/form.",
+      "Pair lookup/cancel releases members; not-found, stale lookup and cutoff refusal.",
+      "Obsolete booking responses after edits or logout cannot manufacture current success.",
+      "Actual separate accepted Stage 1 source import into Stage 3 without reload, retaining token/form/body/key/reference and exact legacy receipt labels.",
+      "Pair uncertainty/import retry and reversed-array parsed-body identity.",
+      "375px/1280px long labels, pair forms/confirmation/lookup/auth, visible labels, keyboard focus and locally bundled resources."
+    ]
+  },
+  "accessibility": {"viewports_css_px": [375, 1280], "horizontal_page_overflow": false, "contrast_pairs_passed": 18, "minimum_text_contrast_ratio": 5.18, "input_boundary_contrast_ratio": 3.98, "keyboard_focus_verified": true},
+  "verification_paths": ["D:/dark/band-work/checks/experience_stage3_campaign.py", "D:/dark/band-work/checks/experience_stage3_contrast.py", "D:/dark/band-work/checks/experience-stage3-browser/optional-summary.json", "D:/dark/band-work/checks/experience-stage3-browser/cumulative/summary.json"],
+  "sanitization": "Only synthetic restaurant names, diner display name and reservation references appear in screenshots. No credentials, session values, exports, raw diagnostics or caches included.",
+  "limitations": ["Owner browser evidence is Chromium-based, not an independent acceptance verdict.", "API, concurrency, policy publication and recurring-booking acceptance belong to the Systems and Independent Verifier campaigns; no new manager or series UI is required or implemented."],
+  "next_owner": "Conductor for exact integrated SHA handoff to Independent Verifier"
+}
