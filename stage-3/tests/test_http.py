@@ -117,6 +117,62 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(self.call('/reservations', body={**body, 'table_ids': ['b'], 'party_size': 4},
                                    headers={**headers, 'Idempotency-Key': 'member'})[0], 201)
 
+    def test_policy_field_errors_and_anonymous_owner_reads_use_endpoint_codes(self):
+        data = fixture()
+        data['restaurants'][0]['manager_user_ids'] = ['alice']
+        self.assertEqual(self.call('/_test/reset', body=data)[0], 204)
+        token = self.login()
+        headers = {'Authorization': 'Bearer ' + token, 'Idempotency-Key': 'policy'}
+        policy = {'effective_from': '2032-06-01', 'slot_minutes': 30, 'reservation_duration_minutes': 90,
+                  'cancellation_cutoff_minutes': 120, 'opening_hours': data['restaurants'][0]['opening_hours'],
+                  'capacities': {'t1': 4, 't2': 6}}
+        for field, value in [('slot_minutes', '30'), ('opening_hours', None), ('capacities', []), ('effective_from', False)]:
+            status, error, _ = self.call('/restaurants/r/policies', body={**policy, field: value}, headers=headers)
+            self.assertEqual((status, error['error']['code']), (422, 'validation_failed'))
+        status, original, _ = self.call('/restaurants/r/policies', body=policy, headers=headers)
+        self.assertEqual((status, original['policy_version']), (201, 1))
+        self.assertEqual(self.call('/restaurants/r/policies', body=policy, headers=headers)[:2], (200, original))
+        status, error, _ = self.call('/restaurants/r/policies', body={'slot_minutes': False}, headers=headers)
+        self.assertEqual((status, error['error']['code']), (409, 'idempotency_key_reuse'))
+        created = self.call('/reservations', body={'restaurant_id': 'r', 'table_id': 't1',
+                            'starts_at_local': '2032-06-03T18:00', 'party_size': 4},
+                            headers={**headers, 'Idempotency-Key': 'create'})[1]
+        for suffix in ('/history', '/decision'):
+            status, error, _ = self.call('/reservations/' + created['reference'] + suffix)
+            self.assertEqual((status, error['error']['code']), (404, 'not_found'))
+        self.assertEqual(self.call('/restaurants/r/policies')[1]['policies'], [original])
+
+    def test_fifty_http_series_retries_keep_original_anchor_and_snapshot(self):
+        self.assertEqual(self.call('/_test/reset', body=fixture())[0], 204)
+        token = self.login()
+        auth = {'Authorization': 'Bearer ' + token}
+        body = {'restaurant_id': 'r', 'table_id': 't1', 'starts_at_local': '2032-06-03T18:00', 'party_size': 4}
+        anchor = self.call('/reservations', body=body, headers={**auth, 'Idempotency-Key': 'anchor'})[1]
+        request = {'anchor_reference': anchor['reference'], 'count': 12, 'interval_weeks': 1}
+        headers = {**auth, 'Idempotency-Key': 'series'}
+        barrier = threading.Barrier(50)
+        def submit(_):
+            barrier.wait()
+            return self.call('/series', body=request, headers=headers)
+        with ThreadPoolExecutor(max_workers=50) as workers:
+            responses = list(workers.map(submit, range(50)))
+        self.assertEqual([status for status, _, _ in responses].count(201), 1)
+        self.assertEqual([status for status, _, _ in responses].count(200), 49)
+        original = responses[0][1]
+        self.assertTrue(all(response == original for _, response, _ in responses))
+        self.assertEqual(original['occurrences'][0]['reservation'], anchor)
+        self.assertEqual(len(original['occurrences']), 12)
+        self.call('/reservations/' + anchor['reference'] + '/cancel', body={}, headers=auth)
+        self.assertEqual(self.call('/series', body=request, headers=headers)[:2], (200, original))
+        snapshot = self.call('/_test/export')[1]
+        server.service = Service()
+        self.assertEqual(self.call('/_test/import', body=snapshot)[0], 204)
+        self.assertEqual(self.call('/series', body=request, headers=headers)[:2], (200, original))
+        current = self.call('/series/' + original['series_id'], headers=auth)[1]
+        self.assertEqual(current['revision'], 2)
+        self.assertEqual(current['occurrences'][0]['reservation']['status'], 'cancelled')
+        self.assertEqual(current['occurrences'][1]['reservation']['status'], 'confirmed')
+
     def login(self):
         return self.call('/auth/login', body={'email': 'alice@example.com', 'password': 'password123'})[1]['token']
 

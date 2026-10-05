@@ -1,4 +1,4 @@
-"""In-memory transactional service. All observable state uses one lock boundary."""
+"""Linearizable transitions: occupancy, history, agreements and receipts."""
 import copy
 import json
 import re
@@ -6,213 +6,18 @@ import secrets
 import threading
 import uuid
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-from json_value import is_number, loads, dumps, add_numbers
 
-from domain import (APIError, UTC, WEEKDAYS, booking, bounds, check_password, email,
-                    fail, field, fixed_instant, hash_password, identifier, local_date, overlaps,
-                    members, party, positive_integer, read_timestamp, resolve, same_json, stored_booking_fields,
-                    timestamp, valid_hash)
-
-
-def empty_state():
-    return {'users': {}, 'restaurants': {}, 'reservations': {}, 'tokens': {}, 'receipts': {}}
+from domain import (APIError, UTC, bounds, check_password, email, fail, field, fixed_instant,
+                    hash_password, identifier, local_date, local_datetime, members, overlaps,
+                    party, positive_integer, read_timestamp, resolve, same_json, selected_members, timestamp)
+from history import changes, entry, native_history, public
+from json_value import add_numbers, dumps
+from policies import applicable_terms, complete_policy, decided_booking, rules_config
+from state import empty_state, fixture_state, imported_state, restaurant_from_fixture
 
 
 def new_id(prefix):
     return prefix + uuid.uuid4().hex
-
-
-def public(reservation):
-    return {k: v for k, v in reservation.items() if k != 'user_id'}
-
-
-def restaurant_from_fixture(value):
-    if type(value) is not dict:
-        fail('malformed_request', 400)
-    result = {k: field(value, k, str) for k in ('id', 'name', 'timezone')}
-    identifier(result['id'])
-    try:
-        ZoneInfo(result['timezone'])
-    except (ZoneInfoNotFoundError, ValueError):
-        fail()
-    for key in ('slot_minutes', 'reservation_duration_minutes', 'cancellation_cutoff_minutes'):
-        result[key] = positive_integer(field(value, key, int), zero=key == 'cancellation_cutoff_minutes')
-    result['opening_hours'], result['tables'] = [], []
-    seen = set()
-    for entry in field(value, 'opening_hours', list):
-        if type(entry) is not dict:
-            fail('malformed_request', 400)
-        hours = {k: field(entry, k, str) for k in ('weekday', 'opens', 'closes')}
-        if hours['weekday'] not in WEEKDAYS or hours['weekday'] in seen:
-            fail()
-        seen.add(hours['weekday'])
-        if any(not re.fullmatch(r'(?:[01][0-9]|2[0-3]):[0-5][0-9]', hours[k]) for k in ('opens', 'closes')):
-            fail()
-        if hours['opens'] >= hours['closes']:
-            fail()
-        result['opening_hours'].append(hours)
-    seen = set()
-    for entry in field(value, 'tables', list):
-        if type(entry) is not dict:
-            fail('malformed_request', 400)
-        table = {'id': identifier(field(entry, 'id', str)), 'label': field(entry, 'label', str),
-                 'capacity': positive_integer(field(entry, 'capacity', int))}
-        if table['id'] in seen:
-            fail()
-        seen.add(table['id'])
-        result['tables'].append(table)
-    result['combinable'] = []
-    pairs = field(value, 'combinable', list) if 'combinable' in value else []
-    seen_pairs = set()
-    for pair in pairs:
-        if type(pair) is not list:
-            fail('malformed_request', 400)
-        if len(pair) != 2:
-            fail()
-        for table_id in pair:
-            if type(table_id) is not str:
-                fail('malformed_request', 400)
-            identifier(table_id)
-        key = frozenset(pair)
-        if len(key) != 2 or not key.issubset(seen) or key in seen_pairs:
-            fail()
-        seen_pairs.add(key)
-        result['combinable'].append(list(pair))
-    return result
-
-
-def fixture_state(body):
-    state = empty_state()
-    emails, reservation_ids = set(), set()
-    for entry in field(body, 'users', list):
-        if type(entry) is not dict:
-            fail('malformed_request', 400)
-        user_id = identifier(field(entry, 'id', str))
-        address = email(field(entry, 'email', str))
-        password = field(entry, 'password', str)
-        if user_id in state['users'] or address in emails:
-            fail()
-        state['users'][user_id] = {'id': user_id, 'email': address,
-                                  'display_name': field(entry, 'display_name', str),
-                                  'password_hash': hash_password(password)}
-        emails.add(address)
-    for entry in field(body, 'restaurants', list):
-        restaurant = restaurant_from_fixture(entry)
-        if restaurant['id'] in state['restaurants']:
-            fail()
-        state['restaurants'][restaurant['id']] = restaurant
-    for entry in field(body, 'reservations', list):
-        if type(entry) is not dict:
-            fail('malformed_request', 400)
-        restaurant_id = identifier(field(entry, 'restaurant_id', str))
-        if restaurant_id not in state['restaurants']:
-            fail()
-        result = booking(state['restaurants'][restaurant_id], entry)
-        res_id = identifier(field(entry, 'id', str))
-        reference = field(entry, 'reference', str)
-        user_id = identifier(field(entry, 'user_id', str))
-        if (not re.fullmatch('[A-Z0-9]{6,12}', reference) or reference in state['reservations']
-                or res_id in reservation_ids or user_id not in state['users']):
-            fail()
-        status = field(entry, 'status', str) if 'status' in entry else 'confirmed'
-        if status not in ('confirmed', 'cancelled'):
-            fail()
-        result.update(reservation_id=res_id, reference=reference, user_id=user_id, status=status,
-                      created_at=timestamp(datetime.now(UTC)))
-        if any(overlaps(result, r) for r in state['reservations'].values()):
-            fail()
-        state['reservations'][reference] = result
-        reservation_ids.add(res_id)
-    return state
-
-
-def imported_state(body):
-    """Validate a replacement completely before publishing it to readers."""
-    try:
-        if body.get('track') != 'tablekeeper' or not is_number(body.get('format_version')) or body['format_version'] != 1:
-            fail()
-        state = body.get('state')
-        if type(state) is dict and set(state) == {'encoding', 'payload'}:
-            if state['encoding'] != 'tablekeeper-json-v1' or type(state['payload']) is not str:
-                fail()
-            state = loads(state['payload'])
-        if type(state) is not dict or set(state) != set(empty_state()) or any(type(v) is not dict for v in state.values()):
-            fail()
-        state = copy.deepcopy(state)
-        emails, reservation_ids = set(), set()
-        for uid, user in state['users'].items():
-            identifier(uid)
-            if type(user) is not dict or user.get('id') != uid or not valid_hash(user.get('password_hash')):
-                fail()
-            address = email(field(user, 'email', str))
-            field(user, 'display_name', str)
-            if address in emails:
-                fail()
-            emails.add(address)
-        for rid, restaurant in state['restaurants'].items():
-            normalized = restaurant_from_fixture(restaurant)
-            source_shape = normalized if 'combinable' in restaurant else {k: v for k, v in normalized.items() if k != 'combinable'}
-            if source_shape != restaurant or normalized['id'] != rid:
-                fail()
-            state['restaurants'][rid] = normalized
-        for reference, reservation in state['reservations'].items():
-            if type(reservation) is not dict or not re.fullmatch('[A-Z0-9]{6,12}', reference):
-                fail()
-            if (reservation.get('reference') != reference or reservation.get('user_id') not in state['users']
-                    or reservation.get('restaurant_id') not in state['restaurants']
-                    or reservation.get('status') not in ('confirmed', 'cancelled')):
-                fail()
-            rid = identifier(field(reservation, 'reservation_id', str))
-            if rid in reservation_ids:
-                fail()
-            reservation_ids.add(rid)
-            expected = booking(state['restaurants'][reservation['restaurant_id']], stored_booking_fields(reservation))
-            source_shape = expected if 'table_ids' in reservation else {k: v for k, v in expected.items() if k != 'table_ids'}
-            if any(reservation.get(k) != v for k, v in source_shape.items()):
-                fail()
-            read_timestamp(field(reservation, 'created_at', str))
-            if set(reservation) != set(source_shape) | {'reservation_id', 'reference', 'user_id', 'status', 'created_at'}:
-                fail()
-            # Migration enriches current records only. Historical receipts below
-            # retain their exact original selection/body/response JSON values.
-            reservation['table_ids'] = list(expected['table_ids'])
-        records = list(state['reservations'].values())
-        for index, reservation in enumerate(records):
-            if any(overlaps(reservation, other) for other in records[index + 1:]):
-                fail()
-        for token, uid in state['tokens'].items():
-            if not token or uid not in state['users']:
-                fail()
-        for key, receipt in state['receipts'].items():
-            scope = json.loads(key)
-            if (type(scope) is not list or len(scope) != 4 or scope[0] not in state['users']
-                    or scope[1] != 'POST' or scope[2] not in ('/reservations', '/reservation-moves')
-                    or type(scope[3]) is not str or not 1 <= len(scope[3]) <= 255
-                    or type(receipt) is not dict or set(receipt) != {'body', 'response'}
-                    or type(receipt['body']) is not dict or type(receipt['response']) is not dict):
-                fail()
-            response = receipt['response']
-            responses = [response] if scope[2] == '/reservations' else response.get('reservations')
-            if type(responses) is not list or not responses or len(responses) > 8:
-                fail()
-            for original in responses:
-                if type(original) is not dict or original.get('reference') not in state['reservations']:
-                    fail()
-                current = state['reservations'][original['reference']]
-                if (original.get('reservation_id') != current['reservation_id'] or current['user_id'] != scope[0]
-                        or original.get('status') != 'confirmed'):
-                    fail()
-                expected = booking(state['restaurants'][original['restaurant_id']], stored_booking_fields(original))
-                source_shape = expected if 'table_ids' in original else {k: v for k, v in expected.items() if k != 'table_ids'}
-                if set(original) != set(source_shape) | {'reservation_id', 'reference', 'status', 'created_at'}:
-                    fail()
-                if any(original[k] != v for k, v in source_shape.items()):
-                    fail()
-                read_timestamp(original['created_at'])
-        return copy.deepcopy(state)
-    except (APIError, ValueError, TypeError, KeyError, OverflowError):
-        fail()
 
 
 class Service:
@@ -221,17 +26,20 @@ class Service:
         self.state = empty_state()
 
     def request(self, method, path, query, body, headers):
-        # Validation, collision detection, reservation mutation and receipt commit
-        # are one linearizable operation. Failed operations never publish candidates.
         with self.lock:
             return copy.deepcopy(self.dispatch(method, path, query, body, headers))
 
     def user(self, headers):
-        authorization = headers.get('Authorization', '')
-        match = re.fullmatch(r'Bearer ([^\s]+)', authorization, flags=re.IGNORECASE)
+        match = re.fullmatch(r'Bearer ([^\s]+)', headers.get('Authorization', ''), flags=re.IGNORECASE)
         if match is None or match[1] not in self.state['tokens']:
             fail('unauthenticated', 401)
         return self.state['tokens'][match[1]]
+
+    def private_reader(self, headers):
+        try:
+            return self.user(headers)
+        except APIError:
+            fail('not_found', 404)
 
     def restaurant(self, rid):
         identifier(rid)
@@ -258,39 +66,178 @@ class Service:
         return scope, previous
 
     def cutoff(self, reservation):
-        restaurant = self.state['restaurants'][reservation['restaurant_id']]
-        delta = (read_timestamp(reservation['starts_at']) - datetime.now(UTC)).total_seconds()
-        if delta / 60 <= restaurant['cancellation_cutoff_minutes']:
+        remaining = (read_timestamp(reservation['starts_at']) - datetime.now(UTC)).total_seconds() / 60
+        if remaining <= reservation['accepted_terms']['cancellation_cutoff_minutes']:
             fail('cutoff_passed', 409)
 
-    def amended(self, reservation, changes):
-        if reservation['status'] == 'cancelled':
+    def amended(self, original, body):
+        if 'expected_revision' in body:
+            expected = positive_integer(body['expected_revision'])
+            if expected != original['revision']:
+                fail('stale_revision', 409)
+        if original['status'] == 'cancelled':
             fail('reservation_cancelled', 409)
-        self.cutoff(reservation)
-        candidate = dict(reservation)
-        candidate.pop('table_id', None)
-        candidate.pop('table_ids', None)
-        if 'table_id' in changes and 'table_ids' in changes:
+        self.cutoff(original)
+        restaurant = self.state['restaurants'][original['restaurant_id']]
+        if 'table_id' in body and 'table_ids' in body:
             fail()
-        if 'table_id' in changes:
-            candidate['table_id'] = changes['table_id']
-        elif 'table_ids' in changes:
-            candidate['table_ids'] = changes['table_ids']
-        else:
-            candidate['table_ids'] = list(members(reservation))
-        for key in ('starts_at_local', 'party_size'):
-            if key in changes:
-                candidate[key] = changes[key]
-        candidate.update(booking(self.state['restaurants'][reservation['restaurant_id']], candidate))
-        if all(same_json(candidate.get(k), reservation.get(k)) for k in candidate) and set(candidate) == set(reservation):
-            return dict(reservation)
-        return candidate
+        selector = {key: body[key] for key in ('table_id', 'table_ids') if key in body}
+        chosen = selected_members(restaurant, selector) if selector else list(members(original))
+        count = party(body['party_size']) if 'party_size' in body else original['party_size']
+        local = (local_datetime(body['starts_at_local']).isoformat(timespec='minutes')
+                 if 'starts_at_local' in body else original['starts_at_local'])
+        proposed = {**original, 'table_ids': chosen, 'party_size': count, 'starts_at_local': local}
+        proposed.pop('table_id', None)
+        if len(chosen) == 1:
+            proposed['table_id'] = chosen[0]
+        if not changes(original, proposed):
+            # No-op bookings keep their accepted policy, including when a newer
+            # policy could not accept the old fields or duration.
+            return copy.deepcopy(original)
+        proposed.update(decided_booking(self.state, restaurant,
+                         {'table_ids': chosen, 'party_size': count, 'starts_at_local': local}))
+        proposed['revision'] = original['revision'] + 1
+        return proposed
 
     def ensure_available(self, candidates, excluded=()):
-        others = [r for ref, r in self.state['reservations'].items() if ref not in excluded]
+        others = [record for reference, record in self.state['reservations'].items() if reference not in excluded]
         for index, candidate in enumerate(candidates):
-            if any(overlaps(candidate, r) for r in others + candidates[:index]):
+            if any(overlaps(candidate, other) for other in others + candidates[:index]):
                 fail('table_unavailable', 409)
+
+    def build_reservation(self, uid, restaurant, body, pending=()):
+        candidate = decided_booking(self.state, restaurant, body)
+        references = set(self.state['reservations']) | {record['reference'] for record in pending}
+        reference = ''.join(secrets.choice('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789') for _ in range(10))
+        while reference in references:
+            reference = ''.join(secrets.choice('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789') for _ in range(10))
+        candidate.update(reservation_id=new_id('res_'), reference=reference, user_id=uid,
+                         status='confirmed', created_at=timestamp(datetime.now(UTC)), revision=1)
+        return candidate
+
+    def publish_created(self, candidates):
+        histories = {record['reference']: native_history(self.state['restaurants'][record['restaurant_id']], record) for record in candidates}
+        self.state['reservations'].update({record['reference']: record for record in candidates})
+        self.state['histories'].update(histories)
+
+    def publish_changes(self, candidates, event='changed'):
+        changed = {record['reference']: record for record in candidates
+                   if record['revision'] != self.state['reservations'][record['reference']]['revision']}
+        histories = {}
+        for reference, candidate in changed.items():
+            history = copy.deepcopy(self.state['histories'][reference])
+            history['entries'].append(entry(history, self.state['restaurants'][candidate['restaurant_id']],
+                                            self.state['reservations'][reference], candidate, event))
+            histories[reference] = history
+        agreements = {}
+        for sid, agreement in self.state['series'].items():
+            if any(occurrence['reference'] in changed for occurrence in agreement['occurrences']):
+                replacement = copy.deepcopy(agreement)
+                replacement['revision'] += 1
+                if event == 'changed':
+                    for occurrence in replacement['occurrences']:
+                        if occurrence['reference'] in changed:
+                            occurrence['exception'] = True
+                agreements[sid] = replacement
+        self.state['reservations'].update(changed)
+        self.state['histories'].update(histories)
+        self.state['series'].update(agreements)
+        return bool(changed)
+
+    def series_response(self, agreement, pending=()):
+        records = {**self.state['reservations'], **{record['reference']: record for record in pending}}
+        return {key: agreement[key] for key in ('series_id', 'revision', 'interval_weeks')} | {
+            'occurrences': [{**occurrence, 'reservation': public(records[occurrence['reference']])}
+                            for occurrence in agreement['occurrences']]}
+
+    def adopt(self, uid, body):
+        reference = identifier(field(body, 'anchor_reference', str))
+        count, interval = positive_integer(body.get('count')), positive_integer(body.get('interval_weeks'))
+        if not 2 <= count <= 12 or interval > 4:
+            fail()
+        anchor = self.owned(reference, uid)
+        if anchor['status'] == 'cancelled':
+            fail('reservation_cancelled', 409)
+        if any(any(item['reference'] == reference for item in agreement['occurrences']) for agreement in self.state['series'].values()):
+            fail('already_in_series', 409)
+        self.cutoff(anchor)
+        restaurant = self.state['restaurants'][anchor['restaurant_id']]
+        local = local_datetime(anchor['starts_at_local'])
+        generated = []
+        for index in range(1, int(count)):
+            try:
+                start = local + timedelta(days=index * int(interval) * 7)
+            except OverflowError:
+                fail()
+            candidate = self.build_reservation(uid, restaurant, {'table_ids': list(members(anchor)),
+                            'party_size': anchor['party_size'], 'starts_at_local': start.isoformat(timespec='minutes')}, generated)
+            # Complete each index, including occupancy, before trying the next.
+            self.ensure_available([*generated, candidate])
+            generated.append(candidate)
+        agreement = {'series_id': new_id('series_'), 'user_id': uid, 'restaurant_id': restaurant['id'],
+                     'revision': 1, 'interval_weeks': interval,
+                     'occurrences': [{'index': index, 'reference': record['reference'], 'exception': False}
+                                     for index, record in enumerate([anchor, *generated])]}
+        response = self.series_response(agreement, generated)
+        self.publish_created(generated)
+        self.state['series'][agreement['series_id']] = agreement
+        self.state['restaurant_revisions'][restaurant['id']] += 1
+        return response
+
+    def availability(self, query):
+        if any(key not in query for key in ('restaurant_id', 'date', 'party_size')):
+            fail()
+        if 'explain' in query and query['explain'] != 'true':
+            fail()
+        if not re.fullmatch('[0-9]+', query['party_size']):
+            fail()
+        count = party(int(query['party_size']))
+        day = local_date(query['date'])
+        original = self.restaurant(query['restaurant_id'])
+        accepted = applicable_terms(self.state, original, query['date'])
+        restaurant = rules_config(original, accepted)
+        slots = []
+        hours = bounds(restaurant, day)
+        if hours:
+            local, close = hours
+            zone = restaurant['timezone']
+            closing = fixed_instant(close, zone)
+            while local < close:
+                try:
+                    start = resolve(local, zone)
+                    if restaurant['reservation_duration_minutes'] <= (closing - start).total_seconds() / 60:
+                        end = start + timedelta(minutes=int(restaurant['reservation_duration_minutes']))
+                        available, options, explanations = [], [], []
+                        tables = {table['id']: table for table in restaurant['tables']}
+                        def free(selection):
+                            candidate = {'restaurant_id': restaurant['id'], 'table_ids': selection, 'status': 'confirmed',
+                                         'starts_at': timestamp(start, zone), 'ends_at': timestamp(end, zone)}
+                            return not any(overlaps(candidate, record) for record in self.state['reservations'].values())
+                        for table in restaurant['tables']:
+                            capacity, no_overlap = table['capacity'] >= count, free([table['id']])
+                            if capacity and no_overlap:
+                                available.append(table['id'])
+                                options.append({'table_ids': [table['id']], 'capacity': table['capacity']})
+                            explanations.append({'table_id': table['id'], 'policy_version': accepted['policy_version'],
+                                                  'available': capacity and no_overlap,
+                                                  'rules': [{'rule': 'capacity', 'holds': capacity}, {'rule': 'no_overlap', 'holds': no_overlap}]})
+                        for pair in restaurant['combinable']:
+                            capacity = add_numbers(tables[pair[0]]['capacity'], tables[pair[1]]['capacity'])
+                            if capacity >= count and free(pair):
+                                options.append({'table_ids': list(pair), 'capacity': capacity})
+                        slot = {'starts_at_local': local.isoformat(timespec='minutes'), 'starts_at': timestamp(start, zone),
+                                'available_table_ids': available, 'available_options': options}
+                        if 'explain' in query:
+                            slot['explain'] = explanations
+                        slots.append(slot)
+                except APIError as error:
+                    if error.code != 'invalid_local_time':
+                        raise
+                remaining = int((close - local).total_seconds() // 60)
+                if restaurant['slot_minutes'] >= remaining:
+                    break
+                local += timedelta(minutes=int(restaurant['slot_minutes']))
+        return {'restaurant_id': original['id'], 'date': query['date'], 'timezone': original['timezone'], 'slots': slots}
 
     def dispatch(self, method, path, query, body, headers):
         if method == 'GET' and path == '/health':
@@ -300,9 +247,6 @@ class Service:
             self.state = replacement
             return 204, None
         if method == 'GET' and path == '/_test/export':
-            # The state is opaque. A JSON text payload avoids forcing a caller's
-            # machine-number parser to round/overflow numbers inside receipts.
-            # Import also accepts the earlier direct-object state representation.
             return 200, {'track': 'tablekeeper', 'format_version': 1,
                          'state': {'encoding': 'tablekeeper-json-v1', 'payload': dumps(self.state)}}
         if method == 'POST' and path == '/_test/import':
@@ -310,9 +254,8 @@ class Service:
             self.state = replacement
             return 204, None
         if method == 'POST' and path in ('/auth/signup', '/auth/login'):
-            address = email(field(body, 'email', str))
-            password = field(body, 'password', str)
-            found = next((u for u in self.state['users'].values() if u['email'] == address), None)
+            address, password = email(field(body, 'email', str)), field(body, 'password', str)
+            found = next((user for user in self.state['users'].values() if user['email'] == address), None)
             if path == '/auth/signup':
                 name = field(body, 'display_name', str)
                 if len(password) < 8:
@@ -328,115 +271,91 @@ class Service:
             self.state['tokens'][token] = found['id']
             return (201 if path == '/auth/signup' else 200), {'user_id': found['id'], 'display_name': found['display_name'], 'token': token}
         if method == 'GET' and path == '/restaurants':
-            return 200, {'restaurants': [{k: r[k] for k in ('id', 'name', 'timezone')} for r in self.state['restaurants'].values()]}
-        match = re.fullmatch('/restaurants/([^/]+)', path)
-        if method == 'GET' and match:
-            return 200, self.restaurant(match[1])
+            return 200, {'restaurants': [{key: restaurant[key] for key in ('id', 'name', 'timezone')} for restaurant in self.state['restaurants'].values()]}
+        policy_path = re.fullmatch('/restaurants/([^/]+)/policies', path)
+        if method == 'GET' and policy_path:
+            restaurant = self.restaurant(policy_path[1])
+            return 200, {'policies': self.state['policies'][restaurant['id']]}
+        restaurant_path = re.fullmatch('/restaurants/([^/]+)', path)
+        if method == 'GET' and restaurant_path:
+            return 200, self.restaurant(restaurant_path[1])
         if method == 'GET' and path == '/availability':
-            if any(k not in query for k in ('restaurant_id', 'date', 'party_size')):
-                fail()
-            if not re.fullmatch('[0-9]+', query['party_size']):
-                fail()
-            try:
-                count = party(int(query['party_size']))
-            except ValueError:
-                fail()
-            day = local_date(query['date'])
-            restaurant = self.restaurant(query['restaurant_id'])
-            slots = []
-            hours = bounds(restaurant, day)
-            if hours:
-                local, close = hours
-                zone = restaurant['timezone']
-                closing = fixed_instant(close, zone)
-                while local < close:
-                    try:
-                        start = resolve(local, zone)
-                        if restaurant['reservation_duration_minutes'] <= (closing - start).total_seconds() / 60:
-                            end = start + timedelta(minutes=int(restaurant['reservation_duration_minutes']))
-                            available = []
-                            options = []
-                            tables = {table['id']: table for table in restaurant['tables']}
-                            for table in restaurant['tables']:
-                                candidate = {'restaurant_id': restaurant['id'], 'table_ids': [table['id']], 'status': 'confirmed',
-                                             'starts_at': timestamp(start, zone), 'ends_at': timestamp(end, zone)}
-                                if table['capacity'] >= count and not any(overlaps(candidate, r) for r in self.state['reservations'].values()):
-                                    available.append(table['id'])
-                                    options.append({'table_ids': [table['id']], 'capacity': table['capacity']})
-                            for pair in restaurant.get('combinable', []):
-                                capacity = add_numbers(tables[pair[0]]['capacity'], tables[pair[1]]['capacity'])
-                                candidate = {'restaurant_id': restaurant['id'], 'table_ids': pair, 'status': 'confirmed',
-                                             'starts_at': timestamp(start, zone), 'ends_at': timestamp(end, zone)}
-                                if capacity >= count and not any(overlaps(candidate, r) for r in self.state['reservations'].values()):
-                                    options.append({'table_ids': list(pair), 'capacity': capacity})
-                            slots.append({'starts_at_local': local.isoformat(timespec='minutes'), 'starts_at': timestamp(start, zone),
-                                          'available_table_ids': available, 'available_options': options})
-                    except APIError as exc:
-                        if exc.code != 'invalid_local_time':
-                            raise
-                    remaining_minutes = int((close - local).total_seconds() // 60)
-                    if restaurant['slot_minutes'] >= remaining_minutes:
-                        break
-                    local += timedelta(minutes=int(restaurant['slot_minutes']))
-            return 200, {'restaurant_id': restaurant['id'], 'date': query['date'], 'timezone': restaurant['timezone'], 'slots': slots}
+            return 200, self.availability(query)
+        history_path = re.fullmatch('/reservations/([^/]+)/(history|decision)', path)
+        if method == 'GET' and history_path:
+            reservation = self.owned(history_path[1], self.private_reader(headers))
+            if history_path[2] == 'decision':
+                return 200, {key: reservation[key] for key in ('reference', 'revision', 'accepted_terms')}
+            return 200, {'reference': reservation['reference'], **self.state['histories'][reservation['reference']]}
+        series_path = re.fullmatch('/series/([^/]+)', path)
+        if method == 'GET' and series_path:
+            uid = self.private_reader(headers)
+            agreement = self.state['series'].get(series_path[1])
+            if agreement is None or agreement['user_id'] != uid:
+                fail('not_found', 404)
+            return 200, self.series_response(agreement)
         uid = self.user(headers)
-        if method == 'POST' and path in ('/reservations', '/reservation-moves'):
+        if method == 'POST' and (path in ('/reservations', '/reservation-moves', '/series') or policy_path):
             scope, previous = self.receipt(uid, path, body, headers)
             if previous:
                 return 200, previous['response']
-            if path == '/reservations':
+            if policy_path:
+                restaurant = self.restaurant(policy_path[1])
+                if uid not in restaurant['manager_user_ids']:
+                    fail('forbidden', 403)
+                policy = complete_policy(restaurant, body)
+                policy['policy_version'] = len(self.state['policies'][restaurant['id']]) + 1
+                response = policy
+                self.state['policies'][restaurant['id']].append(policy)
+            elif path == '/series':
+                response = self.adopt(uid, body)
+            elif path == '/reservations':
                 restaurant = self.restaurant(identifier(field(body, 'restaurant_id', str)))
-                candidate = booking(restaurant, body)
-                reference = ''.join(secrets.choice('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789') for _ in range(10))
-                while reference in self.state['reservations']:
-                    reference = ''.join(secrets.choice('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789') for _ in range(10))
-                candidate.update(reservation_id=new_id('res_'), reference=reference, user_id=uid,
-                                 status='confirmed', created_at=timestamp(datetime.now(UTC)))
+                candidate = self.build_reservation(uid, restaurant, body)
                 self.ensure_available([candidate])
-                candidates = [candidate]
                 response = public(candidate)
+                self.publish_created([candidate])
             else:
                 moves = body.get('moves')
                 if type(moves) is not list or not 1 <= len(moves) <= 8:
                     fail()
                 references = []
                 for move in moves:
-                    if type(move) is not dict or type(move.get('reference')) is not str:
-                        fail()
-                    if move['reference'] in references or not 1 <= len(move['reference']) <= 64:
+                    if type(move) is not dict or type(move.get('reference')) is not str or not 1 <= len(move['reference']) <= 64 or move['reference'] in references:
                         fail()
                     references.append(move['reference'])
-                candidates, restaurant_id = [], None
+                candidates, rid = [], None
                 for move in moves:
                     original = self.owned(move['reference'], uid)
-                    if restaurant_id is not None and original['restaurant_id'] != restaurant_id:
+                    if rid is not None and rid != original['restaurant_id']:
                         fail()
-                    restaurant_id = original['restaurant_id']
+                    rid = original['restaurant_id']
                     candidates.append(self.amended(original, move))
                 self.ensure_available(candidates, references)
-                response = {'reservations': [public(r) for r in candidates]}
-            receipt = {'body': copy.deepcopy(body), 'response': copy.deepcopy(response)}
-            for candidate in candidates:
-                self.state['reservations'][candidate['reference']] = candidate
-            self.state['receipts'][scope] = receipt
+                response = {'reservations': [public(record) for record in candidates]}
+                if self.publish_changes(candidates):
+                    self.state['restaurant_revisions'][rid] += 1
+            self.state['receipts'][scope] = {'body': copy.deepcopy(body), 'response': copy.deepcopy(response)}
             return 201, response
         if method == 'GET' and path == '/reservations':
-            own = [r for r in self.state['reservations'].values() if r['user_id'] == uid]
-            own.sort(key=lambda r: read_timestamp(r['starts_at']), reverse=True)
-            return 200, {'reservations': [public(r) for r in own]}
-        match = re.fullmatch('/reservations/([^/]+)(/cancel)?', path)
-        if match:
-            original = self.owned(match[1], uid)
-            if method == 'GET' and not match[2]:
+            records = [record for record in self.state['reservations'].values() if record['user_id'] == uid]
+            records.sort(key=lambda record: read_timestamp(record['starts_at']), reverse=True)
+            return 200, {'reservations': [public(record) for record in records]}
+        reservation_path = re.fullmatch('/reservations/([^/]+)(/cancel)?', path)
+        if reservation_path:
+            original = self.owned(reservation_path[1], uid)
+            if method == 'GET' and not reservation_path[2]:
                 return 200, public(original)
-            if method == 'POST' and match[2]:
-                if original['status'] != 'cancelled':
-                    self.cutoff(original)
-                    original['status'] = 'cancelled'
-                return 200, public(original)
-            if method == 'PATCH' and not match[2]:
+            if method == 'POST' and reservation_path[2]:
+                if original['status'] == 'cancelled':
+                    return 200, public(original)
+                self.cutoff(original)
+                candidate = {**original, 'status': 'cancelled', 'revision': original['revision'] + 1}
+                self.publish_changes([candidate], 'cancelled')
+                return 200, public(candidate)
+            if method == 'PATCH' and not reservation_path[2]:
                 candidate = self.amended(original, body)
                 self.ensure_available([candidate], [original['reference']])
-                self.state['reservations'][candidate['reference']] = candidate
+                self.publish_changes([candidate])
                 return 200, public(candidate)
         fail('not_found', 404)

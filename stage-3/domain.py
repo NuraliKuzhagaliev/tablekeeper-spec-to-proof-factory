@@ -143,7 +143,7 @@ def members(reservation):
     return reservation['table_ids'] if 'table_ids' in reservation else [reservation['table_id']]
 
 
-def selection(restaurant, body):
+def selected_members(restaurant, body):
     # Only explicit request selectors are mutually exclusive. Stored single
     # responses carry both fields, so callers merge defaults after this step.
     if 'table_id' in body and 'table_ids' in body:
@@ -170,6 +170,12 @@ def selection(restaurant, body):
         if declared is None:
             fail('combination_not_allowed')
         selected = list(declared)
+    return list(selected)
+
+
+def selection(restaurant, body):
+    selected = selected_members(restaurant, body)
+    tables = {table['id']: table for table in restaurant['tables']}
     capacity = tables[selected[0]]['capacity']
     if len(selected) == 2:
         capacity = add_numbers(capacity, tables[selected[1]]['capacity'])
