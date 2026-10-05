@@ -114,6 +114,8 @@
     ];
   }
   const sameMembers = (a,b) => a.length === b.length && a.every((id,index) => id === b[index]);
+  const offeredCapacity = (slot,ids) => (slot?.available_options || []).find(option => sameMembers(option.table_ids,ids))?.capacity;
+  const capacityCopy = capacity => Number.isFinite(capacity) ? `Seats up to ${capacity}` : 'Seating for your searched party';
   const loading = text => `<div class="loading" role="status"><span class="spinner" aria-hidden="true"></span>${escape(text)}</div>`;
   const errorBox = (name,text) => text ? `<div class="notice error" role="alert" ${hook(name)}>${escape(text)}</div>` : '';
   function renderHeader() {
@@ -224,7 +226,7 @@
     container.innerHTML = heading + `<div ${hook('availability-grid')}>${availability.slots.map((slot,index) => `<section class="slot-row" aria-label="Tables at ${escape(localTime(slot.starts_at_local))}"><div class="slot-time"><strong>${escape(localTime(slot.starts_at_local))}</strong><small>local time</small></div><div class="slot-choices">${options.map((option,seatIndex) => {
       const available = option.ids.length === 1 ? slot.available_table_ids.includes(option.ids[0]) : (slot.available_options || []).some(candidate => sameMembers(candidate.table_ids,option.ids));
       const selected = state.booking && sameMembers(state.booking.ids,option.ids) && state.booking.local === slot.starts_at_local;
-      return `<button type="button" class="slot-cell ${option.ids.length === 2 ? 'combo' : ''}" ${hook('slot-'+option.ids.join('+')+'-'+localTime(slot.starts_at_local))} data-available="${available}" data-slot-index="${index}" data-seat-index="${seatIndex}" aria-pressed="${Boolean(selected)}" aria-label="${escape(seatName(restaurant,option.ids)+', '+localTime(slot.starts_at_local)+', '+(available ? 'available' : 'unavailable'))}" ${available ? '' : 'disabled'}><strong>${escape(seatName(restaurant,option.ids))}</strong><small>Seats up to ${escape(option.capacity)}</small><span class="seat-state">${selected ? 'Your selection' : available ? 'Reserve this table' : 'Unavailable'}</span></button>`;
+      return `<button type="button" class="slot-cell ${option.ids.length === 2 ? 'combo' : ''}" ${hook('slot-'+option.ids.join('+')+'-'+localTime(slot.starts_at_local))} data-available="${available}" data-slot-index="${index}" data-seat-index="${seatIndex}" aria-pressed="${Boolean(selected)}" aria-label="${escape(seatName(restaurant,option.ids)+', '+localTime(slot.starts_at_local)+', '+(available ? 'available' : 'unavailable'))}" ${available ? '' : 'disabled'}><strong>${escape(seatName(restaurant,option.ids))}</strong><small>${escape(available ? capacityCopy(offeredCapacity(slot,option.ids)) : 'Try another time or party size')}</small><span class="seat-state">${selected ? 'Your selection' : available ? 'Reserve this table' : 'Unavailable'}</span></button>`;
     }).join('')}</div></section>`).join('')}</div>${state.searchError ? errorBox('search-error',state.searchError) : ''}`;
     container.querySelectorAll('button[data-available="true"]').forEach(button => button.addEventListener('click', () => {
       if (!state.user) {
@@ -247,7 +249,7 @@
     const region = document.getElementById('booking-region'); if (!region) return;
     const booking = state.booking; if (!booking) { region.innerHTML = ''; return; }
     const {restaurant,availability} = booking.snapshot;
-    region.innerHTML = `<section class="panel booking-panel" ${hook('booking-form')} aria-labelledby="booking-heading"><div class="booking-heading"><div><p class="step-label">YOUR PLACE FOR THE EVENING</p><h2 id="booking-heading" tabindex="-1">Make it a reservation.</h2><p class="booking-summary" ${hook('booking-summary')}>${escape(restaurant.name)} · ${escape(seatName(restaurant,booking.ids))} · ${escape(localDate(booking.local.slice(0,10)))} at ${escape(localTime(booking.local))}</p></div></div><form id="booking-fields"><div class="booking-fields"><div class="field"><label for="booking-seat">Your seating</label><select id="booking-seat" name="seat" ${hook('booking-seating')}>${seatingOptions(restaurant).map(option => `<option value="${escape(JSON.stringify(option.ids))}" ${sameMembers(option.ids,booking.ids) ? 'selected' : ''}>${escape(seatName(restaurant,option.ids))} · seats ${escape(option.capacity)}</option>`).join('')}</select></div><div class="field"><label for="booking-time">Your time</label><select id="booking-time" name="time" ${hook('booking-time')}>${availability.slots.map(slot => `<option value="${escape(slot.starts_at_local)}" ${slot.starts_at_local === booking.local ? 'selected' : ''}>${escape(localTime(slot.starts_at_local))}</option>`).join('')}</select></div><div class="field"><label for="booking-party">Guests</label><input id="booking-party" name="party" type="number" min="1" step="1" required value="${escape(booking.party)}" ${hook('booking-party-size')}></div></div><div id="booking-feedback" aria-live="polite"></div><div class="booking-actions"><button class="primary" ${hook('booking-submit')}>Confirm reservation</button><p>Your table is reserved only when a confirmation comes back. A ${escape(restaurant.reservation_duration_minutes)}-minute visit, in ${escape(restaurant.timezone)}.</p></div></form><div id="confirmation-region" aria-live="polite"></div></section>`;
+    region.innerHTML = `<section class="panel booking-panel" ${hook('booking-form')} aria-labelledby="booking-heading"><div class="booking-heading"><div><p class="step-label">YOUR PLACE FOR THE EVENING</p><h2 id="booking-heading" tabindex="-1">Make it a reservation.</h2><p class="booking-summary" ${hook('booking-summary')}>${escape(restaurant.name)} · ${escape(seatName(restaurant,booking.ids))} · ${escape(localDate(booking.local.slice(0,10)))} at ${escape(localTime(booking.local))}</p></div></div><form id="booking-fields"><div class="booking-fields"><div class="field"><label for="booking-seat">Your seating</label><select id="booking-seat" name="seat" ${hook('booking-seating')}>${seatingOptions(restaurant).map(option => `<option value="${escape(JSON.stringify(option.ids))}" ${sameMembers(option.ids,booking.ids) ? 'selected' : ''}>${escape(seatName(restaurant,option.ids))}</option>`).join('')}</select></div><div class="field"><label for="booking-time">Your time</label><select id="booking-time" name="time" ${hook('booking-time')}>${availability.slots.map(slot => `<option value="${escape(slot.starts_at_local)}" ${slot.starts_at_local === booking.local ? 'selected' : ''}>${escape(localTime(slot.starts_at_local))}</option>`).join('')}</select></div><div class="field"><label for="booking-party">Guests</label><input id="booking-party" name="party" type="number" min="1" step="1" required value="${escape(booking.party)}" ${hook('booking-party-size')}></div></div><div id="booking-feedback" aria-live="polite"></div><div class="booking-actions"><button class="primary" ${hook('booking-submit')}>Confirm reservation</button><p>Your table is reserved only when a confirmation comes back. Accepted visit details accompany your reservation. Times are local to ${escape(restaurant.timezone)}.</p></div></form><div id="confirmation-region" aria-live="polite"></div></section>`;
     const form = document.getElementById('booking-fields');
     form.elements.party.addEventListener('input', () => {
       if (booking.party !== form.elements.party.value) { booking.party = form.elements.party.value; changeIntent(booking); updateBookingFeedback(); }
@@ -339,7 +341,7 @@
     const region = document.getElementById('lookup-feedback'); if (!region) return;
     region.innerHTML = state.lookupBusy ? loading('Finding your reservation…') : errorBox('reservation-error',state.lookupError);
   }
-  async function lookup(reference) {
+  async function lookup(reference, showStory = false) {
     const generation = ++state.lookupGeneration;
     const userGeneration = state.userGeneration;
     state.lookupValue = reference; state.lookupError = ''; state.detail = null; state.cancelBusy = false;
@@ -352,7 +354,7 @@
       if (!current()) return;
       const restaurant = await api('/restaurants/'+encodeURIComponent(reservation.restaurant_id));
       if (!current()) return;
-      state.detail = {reservation,restaurant};
+      state.detail = {reservation,restaurant,provenance:{open:showStory,generation:0,status:'idle',history:null,decision:null,error:'',conflict:false}};
     } catch (error) {
       if (!current()) return;
       state.lookupError = error instanceof Refusal ? error.status === 404 ? 'We could not find that reservation in your account. Please check the reference.' : error.message : 'We could not load your reservation. Please try again.';
@@ -364,8 +366,16 @@
     const region = document.getElementById('reservation-region'); if (!region) return;
     if (!state.detail) { region.innerHTML = ''; return; }
     const {reservation,restaurant} = state.detail;
-    region.innerHTML = `<section class="panel reservation-card" ${hook('reservation-detail')}><div class="detail-top"><p class="step-label">YOUR RESERVATION</p><span class="status-pill ${reservation.status === 'cancelled' ? 'cancelled' : ''}" ${hook('reservation-status')}>${escape(reservation.status)}</span></div><h2 class="detail-title">${escape(restaurant.name)}</h2><p class="detail-date">${escape(localDate(reservation.starts_at_local.slice(0,10)))} at ${escape(localTime(reservation.starts_at_local))} · ${escape(restaurant.timezone)}</p><dl class="detail-grid"><div><dt>Your seating</dt><dd ${hook('reservation-tables')}>${escape(seatName(restaurant,members(reservation)))}</dd></div><div><dt>Guests</dt><dd>${escape(reservation.party_size)}</dd></div><div><dt>Reference</dt><dd>${escape(reservation.reference)}</dd></div><div><dt>Your visit</dt><dd>${escape(restaurant.reservation_duration_minutes)} minutes</dd></div></dl>${reservation.status === 'confirmed' ? `<div class="cancel-actions"><button class="secondary" ${hook('reservation-cancel-button')} ${state.cancelBusy ? 'disabled' : ''}>${state.cancelBusy ? 'Cancelling…' : 'Cancel reservation'}</button><p>Changes are allowed until ${escape(restaurant.cancellation_cutoff_minutes)} minutes before your reservation.</p></div>` : '<div class="notice">This reservation has been cancelled. We hope to see you another evening.</div><p class="auth-switch"><a href="/" data-nav>Find another table ↗</a></p>'}</section>`;
+    const terms = reservation.accepted_terms || restaurant;
+    region.innerHTML = `<section class="panel reservation-card" ${hook('reservation-detail')}><div class="detail-top"><p class="step-label">YOUR RESERVATION</p><span class="status-pill ${reservation.status === 'cancelled' ? 'cancelled' : ''}" ${hook('reservation-status')}>${escape(reservation.status)}</span></div><h2 class="detail-title">${escape(restaurant.name)}</h2><p class="detail-date">${escape(localDate(reservation.starts_at_local.slice(0,10)))} at ${escape(localTime(reservation.starts_at_local))} · ${escape(restaurant.timezone)}</p><dl class="detail-grid"><div><dt>Your seating</dt><dd ${hook('reservation-tables')}>${escape(seatName(restaurant,members(reservation)))}</dd></div><div><dt>Guests</dt><dd>${escape(reservation.party_size)}</dd></div><div><dt>Reference</dt><dd>${escape(reservation.reference)}</dd></div><div><dt>Your visit</dt><dd>${escape(terms.reservation_duration_minutes)} minutes</dd></div></dl>${reservation.status === 'confirmed' ? `<div class="cancel-actions"><button class="secondary" ${hook('reservation-cancel-button')} ${state.cancelBusy ? 'disabled' : ''}>${state.cancelBusy ? 'Cancelling…' : 'Cancel reservation'}</button><p>Changes are allowed until ${escape(terms.cancellation_cutoff_minutes)} minutes before your reservation.</p></div>` : '<div class="notice">This reservation has been cancelled. We hope to see you another evening.</div><p class="auth-switch"><a href="/" data-nav>Find another table ↗</a></p>'}</section><details class="panel provenance-panel" ${hook('provenance-disclosure')} ${state.detail.provenance.open ? 'open' : ''}><summary><span><span class="step-label">THE DETAILS WE KEEP FOR YOU</span><span class="story-title">Your reservation story & accepted terms</span></span><span class="disclosure-chevron" aria-hidden="true">⌄</span></summary><div id="provenance-content" aria-live="polite"></div></details>`;
     region.querySelector('[data-testid="reservation-cancel-button"]')?.addEventListener('click', cancelReservation);
+    const detail = state.detail;
+    region.querySelector('[data-testid="provenance-disclosure"]').addEventListener('toggle', event => {
+      if (state.detail !== detail) return;
+      detail.provenance.open = event.currentTarget.open;
+      if (detail.provenance.open && detail.provenance.status === 'idle' && !state.cancelBusy) loadProvenance(detail);
+    });
+    renderProvenance();
   }
   async function cancelReservation() {
     if (!state.detail || !state.user || state.cancelBusy) return;
@@ -374,6 +384,9 @@
     const userGeneration = state.userGeneration;
     const current = () => generation === state.lookupGeneration && userGeneration === state.userGeneration && state.detail === detail;
     const token = state.user.token;
+    // Cancellation invalidates both the optional request and its rendered snapshots.
+    detail.provenance.generation++; detail.provenance.status = 'idle';
+    detail.provenance.history = null; detail.provenance.decision = null; detail.provenance.error = '';
     state.cancelBusy = true; state.lookupError = ''; renderReservation(); renderLookupFeedback();
     try {
       const response = await api('/reservations/'+encodeURIComponent(detail.reservation.reference)+'/cancel', {method:'POST',headers:authHeaders(token),body:'{}'});
@@ -386,6 +399,115 @@
     } finally {
       if (current()) { state.cancelBusy = false; renderLookupFeedback(); renderReservation(); }
     }
+  }
+
+  function validTerms(terms) {
+    return terms && Number.isInteger(terms.policy_version) && terms.policy_version >= 0
+      && Number.isInteger(terms.reservation_duration_minutes) && terms.reservation_duration_minutes > 0
+      && Number.isInteger(terms.cancellation_cutoff_minutes) && terms.cancellation_cutoff_minutes >= 0
+      && Number.isInteger(terms.slot_minutes) && terms.slot_minutes > 0
+      && Array.isArray(terms.opening_hours) && terms.opening_hours.every(day => day
+        && typeof day.weekday === 'string' && typeof day.opens === 'string' && typeof day.closes === 'string')
+      && terms.capacities && typeof terms.capacities === 'object' && !Array.isArray(terms.capacities)
+      && Object.values(terms.capacities).every(capacity => Number.isInteger(capacity) && capacity > 0);
+  }
+  function sameValue(a,b) {
+    if (a === b) return true;
+    if (!a || !b || typeof a !== 'object' || typeof b !== 'object' || Array.isArray(a) !== Array.isArray(b)) return false;
+    const keys = Object.keys(a);
+    return keys.length === Object.keys(b).length && keys.every(key => Object.hasOwn(b,key) && sameValue(a[key],b[key]));
+  }
+  async function loadProvenance(detail) {
+    if (state.detail !== detail || !state.user || state.cancelBusy) return;
+    const provenance = detail.provenance;
+    const generation = ++provenance.generation;
+    const lookupGeneration = state.lookupGeneration;
+    const userGeneration = state.userGeneration;
+    const reference = detail.reservation.reference;
+    const token = state.user.token;
+    const current = () => state.detail === detail && state.lookupGeneration === lookupGeneration
+      && state.userGeneration === userGeneration && provenance.generation === generation && !state.cancelBusy;
+    provenance.status = 'loading'; provenance.history = null; provenance.decision = null; provenance.error = ''; provenance.conflict = false;
+    renderProvenance();
+    // Independent reads may partially fail. Only matching snapshots are combined.
+    const results = await Promise.allSettled([
+      api('/reservations/'+encodeURIComponent(reference)+'/history', {headers:authHeaders(token)}),
+      api('/reservations/'+encodeURIComponent(reference)+'/decision', {headers:authHeaders(token)})
+    ]);
+    if (!current()) return;
+    let history = results[0].status === 'fulfilled' ? results[0].value : null;
+    let decision = results[1].status === 'fulfilled' ? results[1].value : null;
+    if (history && (history.reference !== reference || !Array.isArray(history.entries) || !history.provenance
+      || !['native','legacy_baseline','fixture_baseline'].includes(history.provenance.kind)
+      || history.entries.some(entry => !entry || !Number.isInteger(entry.seq) || !Number.isInteger(entry.revision)
+        || typeof entry.at !== 'string' || !Array.isArray(entry.changes) || !validTerms(entry.accepted_terms)
+        || entry.changes.some(change => !change || typeof change.field !== 'string'
+          || !Object.hasOwn(change,'from') || !Object.hasOwn(change,'to'))
+        || !['created','changed','cancelled'].includes(entry.event)))) history = null;
+    if (decision && (decision.reference !== reference || !Number.isInteger(decision.revision) || !validTerms(decision.accepted_terms))) decision = null;
+    const latest = history?.entries.at(-1) || history?.provenance.known_state;
+    const known = history?.provenance.known_state;
+    if (known && (known.reference !== reference || known.restaurant_id !== detail.restaurant.id
+      || typeof known.starts_at_local !== 'string' || !Number.isInteger(known.party_size)
+      || !['confirmed','cancelled'].includes(known.status) || !validTerms(known.accepted_terms)
+      || !(typeof known.table_id === 'string' || (Array.isArray(known.table_ids)
+        && known.table_ids.every(id => typeof id === 'string'))))) history = null;
+    const mismatch = (decision && (decision.revision !== detail.reservation.revision
+        || !sameValue(decision.accepted_terms,detail.reservation.accepted_terms)))
+      || (history && latest && (latest.revision !== detail.reservation.revision
+        || !sameValue(latest.accepted_terms,detail.reservation.accepted_terms)));
+    if (mismatch) {
+      provenance.status = 'error'; provenance.conflict = true;
+      provenance.error = 'Your reservation changed while these details were loading. Refresh this reservation to see a matching story and accepted terms.';
+    } else {
+      provenance.history = history; provenance.decision = decision;
+      provenance.status = history && decision ? 'ready' : 'error';
+      provenance.error = history && decision ? '' : 'Some of your reservation story or accepted terms could not be loaded. Your reservation details and cancellation option remain available above.';
+    }
+    renderProvenance();
+  }
+  function termsMarkup(terms,restaurant) {
+    const weekdays = {mon:'Monday',tue:'Tuesday',wed:'Wednesday',thu:'Thursday',fri:'Friday',sat:'Saturday',sun:'Sunday'};
+    return `<p class="terms-edition">${terms.policy_version === 0 ? 'Restaurant baseline terms' : 'Terms edition '+escape(terms.policy_version)}</p><dl class="terms-facts"><div><dt>Your visit</dt><dd>${escape(terms.reservation_duration_minutes)} minutes</dd></div><div><dt>Cancellation window</dt><dd>Until ${escape(terms.cancellation_cutoff_minutes)} minutes before the visit</dd></div><div><dt>Reservation times</dt><dd>Every ${escape(terms.slot_minutes)} minutes from opening</dd></div></dl><details class="terms-more"><summary>Accepted opening hours & seating capacities</summary><div class="terms-columns"><div><h4>Opening hours</h4><ul>${terms.opening_hours.map(day => `<li><span>${escape(weekdays[day.weekday] || day.weekday)}</span><span>${escape(day.opens)}–${escape(day.closes)}</span></li>`).join('') || '<li>No opening hours in this snapshot.</li>'}</ul></div><div><h4>Seating capacities</h4><ul>${restaurant.tables.map(table => `<li><span>Table ${escape(table.label)}</span><span>${Number.isFinite(terms.capacities[table.id]) ? escape(terms.capacities[table.id])+' guests' : 'Restaurant-supplied capacity'}</span></li>`).join('')}</ul></div></div></details>`;
+  }
+  function recordedTime(at, timezone) {
+    if (typeof at !== 'string' || !at) return '';
+    const instant = new Date(at);
+    if (Number.isNaN(instant.getTime())) return at;
+    return new Intl.DateTimeFormat('en',{year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23',timeZone:timezone}).format(instant);
+  }
+  function changeMarkup(change,restaurant) {
+    const label = ({table_id:'Seating',table_ids:'Seating',starts_at_local:'Visit time',party_size:'Guests'})[change.field];
+    if (!label) return '';
+    const value = raw => {
+      if (change.field === 'table_id' || change.field === 'table_ids') return escape(seatName(restaurant,Array.isArray(raw) ? raw : [raw]));
+      if (change.field === 'starts_at_local') return escape(localDate(String(raw).slice(0,10))+' at '+localTime(raw));
+      return escape(raw)+(Number(raw) === 1 ? ' guest' : ' guests');
+    };
+    return `<li><span class="change-label">${label}</span><span>${change.from === null ? '' : `<span class="change-before">${value(change.from)}</span><span class="change-arrow" aria-label="changed to"> → </span>`}<span class="change-after">${value(change.to)}</span></span></li>`;
+  }
+  function historyMarkup(history,restaurant) {
+    const {provenance,entries} = history;
+    let baseline = '';
+    if (provenance.kind !== 'native') {
+      const known = provenance.known_state;
+      baseline = `<section class="history-baseline" ${hook('history-baseline')}><h3>Details retained from an earlier record</h3><p>${provenance.kind === 'legacy_baseline' ? 'These are the known details preserved from an earlier reservation record. Earlier changes were not recorded.' : 'These details were supplied with this reservation. Earlier booking and cancellation activity was not recorded.'}</p>${known ? `<dl class="baseline-facts"><div><dt>Recorded seating</dt><dd>${escape(seatName(restaurant,members(known)))}</dd></div><div><dt>Recorded visit</dt><dd>${escape(localDate(known.starts_at_local.slice(0,10)))} at ${escape(localTime(known.starts_at_local))}</dd></div><div><dt>Recorded guests</dt><dd>${escape(known.party_size)}</dd></div><div><dt>Recorded status</dt><dd>${escape(known.status)}</dd></div></dl>` : ''}<p class="baseline-note">Only preserved details are shown here. Earlier event dates and changes are unavailable.</p></section>`;
+    }
+    return `<section class="history-section" ${hook('reservation-history')}><h3 class="serif">Your reservation story</h3><p class="story-caption">Recorded activity, earliest first. Event times are local to ${escape(restaurant.timezone)}.</p>${baseline}${entries.length ? `<ol class="history-list">${entries.map(entry => `<li class="history-event" ${hook('history-event')} data-seq="${escape(entry.seq)}"><div class="event-heading"><h4>${({created:'Reservation recorded',changed:'Reservation details changed',cancelled:'Reservation cancelled'})[entry.event]}</h4>${entry.at ? `<time datetime="${escape(entry.at)}">${escape(recordedTime(entry.at,restaurant.timezone))}</time>` : ''}</div>${entry.changes.length ? `<ul class="event-changes">${entry.changes.map(change => changeMarkup(change,restaurant)).join('')}</ul>` : '<p class="story-caption">The reservation was cancelled. Its recorded details are kept here.</p>'}<details class="event-terms" ${hook('event-terms')}><summary>Accepted terms for this recorded event</summary>${termsMarkup(entry.accepted_terms,restaurant)}</details></li>`).join('')}</ol>` : `<p class="history-empty" ${hook('history-empty')}>No earlier events are available for this reservation. Preserved details are shown above; any later recorded activity will appear here.</p>`}</section>`;
+  }
+  function renderProvenance() {
+    const region = document.getElementById('provenance-content'); if (!region || !state.detail) return;
+    const detail = state.detail;
+    const provenance = detail.provenance;
+    if (state.cancelBusy || provenance.status === 'loading') {
+      region.innerHTML = `<div ${hook('provenance-loading')}>${loading(state.cancelBusy ? 'Updating your reservation…' : 'Finding your recorded story and accepted terms…')}</div>`; return;
+    }
+    if (provenance.status === 'idle') { region.innerHTML = ''; return; }
+    region.innerHTML = `${provenance.error ? `<div class="notice uncertain" role="status" ${hook('provenance-error')}>${escape(provenance.error)}</div>` : ''}${provenance.decision ? `<section class="current-terms" ${hook('accepted-terms')}><h3 class="serif">The terms accepted for your reservation</h3><p class="story-caption">A snapshot kept with your booking, including after cancellation. Later restaurant policy changes do not rewrite it.</p>${termsMarkup(provenance.decision.accepted_terms,detail.restaurant)}</section>` : ''}${provenance.history ? historyMarkup(provenance.history,detail.restaurant) : ''}<div class="story-actions"><button class="secondary" ${hook('provenance-refresh')}>${provenance.conflict ? 'Refresh this reservation' : provenance.error ? 'Retry story & terms' : 'Refresh story & terms'}</button><p>Refreshed only when you ask or confirm a cancellation.</p></div>`;
+    region.querySelector('[data-testid="provenance-refresh"]').addEventListener('click', () => {
+      if (state.detail !== detail) return;
+      if (provenance.conflict) lookup(detail.reservation.reference,true); else loadProvenance(detail);
+    });
   }
 
   render();
