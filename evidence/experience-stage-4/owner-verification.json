@@ -1,0 +1,140 @@
+{
+  "status": "OWNER_PASS_PENDING_INDEPENDENT_VERIFICATION",
+  "handoff_id": "EXP-S4-DINER-CONTINUITY-001",
+  "production_commit": "e0caa7221dc63638418768801eed24fc5ed9b7b0",
+  "integrated_stage4_tree": "181bcef3172bf41c2feba3195e628c5d145c81de",
+  "backend_commit": "ba079eeacaba1e623ddc66c8fc82521517ca4e09",
+  "baseline_commit": "e5e54aea643367193c5376d6c7d77bf485b00ba0",
+  "accepted_stage3_commit": "0ca5880272740494e541a903a49ea423c6e8ce2b",
+  "tested_public_git_blobs": {
+    "stage-4/public/index.html": "599a4a5783c7d7a55f99f005c025226c2694a209",
+    "stage-4/public/app.js": "efa5cbca1c0bf511119186cf1f81eaea8ff1852b",
+    "stage-4/public/styles.css": "3a55d3baa0269b05d09299fcf4a0826f56db8611"
+  },
+  "tested_backend_git_blobs": {
+    "stage-4/domain.py": "4f71d3488cda163a82ff189ea9fb40d7e6fccabf",
+    "stage-4/service.py": "8d8f486b8ece59acaaa925075b293146eb25140e",
+    "stage-4/server.py": "1d0354fa9f0dc653efa90259c482d5697ee21086",
+    "stage-4/json_value.py": "023accde2463b21b1ba72bf968f8d14fce966fa4",
+    "stage-4/history.py": "9eac9b9e2b32d0380f62009df0d24dc8c95176a6",
+    "stage-4/policies.py": "006ece39f500902a544858ba82dcbb04e052903e",
+    "stage-4/state.py": "79bb99d18ab4568ce9bf82c66385c68bed86907d",
+    "stage-4/seating.py": "8cf107729a0740dc54a62a2478aa0313f0f468c9",
+    "stage-4/agreements.py": "2d813007454c40ac978b1e7712f89d658bd5a550"
+  },
+  "implemented": [
+    "After a genuine booking success/replay, one guarded owner GET supplies current confirmation seating; the returned original receipt/reference and serialized request/key remain historical and unchanged.",
+    "Failed current reads preserve the known successful outcome with separate feedback and a read-only retry; cancelled current records remain truthful.",
+    "Supplied reassigned history renders complete human table labels before/after, server event order/time, preserved terms, and a wrapped seating-update reference.",
+    "Fresh search and lookup use authoritative applied closures/current assignments; required routes/hooks and Stage3 native/legacy/fixture provenance remain intact."
+  ],
+  "campaign": {
+    "browser": "Playwright Chromium",
+    "macro_groups_passed": 28,
+    "new_stage4_groups": 8,
+    "inherited_stage3_groups": 8,
+    "inherited_required_groups": 12,
+    "groups": {
+      "stage4": [
+        "real single repair preserves terms/times and truthful history; fresh search excludes closed member with half-open end",
+        "single/pair loss then applied repair retains exact original receipt/body/key/form and separately reads present confirmation seats",
+        "known server booking success survives network/404/unreadable/wrong-reference current-read failure and read-only retry; current cancelled state is truthful",
+        "held current-confirmation reads cannot restore obsolete intent/user/navigation or replace a newer replay current read",
+        "complete declared pair transition labels/plan reference and server seq order; unmoved booking adds no revision or story row",
+        "repaired series retains identity/exception/schedule/terms facts and later amendment records only actual eligible changes",
+        "actual populated Stage3 import retains session/lost pair retry/native history/old booking and series receipts plus original scheduled dates across repair/amend",
+        "375px/1280px real pair repair story, long human labels and64-character plan reference, keyboard focus, no overflow and locally bundled assets"
+      ],
+      "stage3": [
+        "native single/pair chronological actual-field history, no-op/replay neutrality, immutable event terms and cancellation",
+        "delayed history/decision cannot restore another reference or leak previous user details after logout",
+        "network/404/unreadable/partial/revision failures keep lookup/cancel usable and explicit retry restores optional view",
+        "cancellation invalidates obsolete optional reads and shows terminal history without blocking the required flow",
+        "cancelled fixture baseline contains known facts without invented events; optional reads are requested only on disclosure",
+        "published capacities use authoritative available options; delayed restaurant labels cannot replace another reference story",
+        "actual Stage 2-to-3 pair loss/import retains original receipt and exposes known-state baseline without fabricated events",
+        "375px/desktop chronological pair transition and accepted terms, keyboard disclosure/focus and no overflow/local resources"
+      ],
+      "stage2": [
+        "four HTML routes, navigation, signup, login failure/recovery, session display, logout",
+        "public browsing, exact single/pair cells, frozen searched party, signed-out selection, closed day",
+        "successful single replay, exact body/key, one effect, changed field new identity and conflict preservation",
+        "single and pair lost-before/lost-after commits, unchanged exact retry and authoritative original confirmation",
+        "unreadable booking response uncertainty and delivered validation refusal",
+        "late restaurant details and availability cannot overwrite newer grid, labels or selected form",
+        "pair member conflict preserves inputs and late conflict refresh cannot rebind newer search/form",
+        "pair lookup, cancellation releases members, not-found/stale lookup protection, cutoff refusal",
+        "obsolete booking replies after input edit or logout cannot manufacture current-user success",
+        "actual separate Stage 1-to-2 import without reload retains token/form/key/body/reference and legacy receipt labels",
+        "pair uncertainty/import recovery and reversed-array receipt identity regression",
+        "375px/1280px long labels and pair forms/confirmation/lookup/auth, no overflow, keyboard focus/labels/local assets"
+      ]
+    },
+    "browser_runtime_errors": 0,
+    "actual_source_upgrade_paths": [
+      "Stage1 to Stage4 browser continuity",
+      "Stage2 to Stage4 browser continuity",
+      "Populated Stage3 to Stage4 without browser reload"
+    ],
+    "upgrade_details": "Actual frozen earlier service processes produced exports. Credentials, tokens, full exports and receipts remained in private campaign memory. Existing session and exact retry body/key/reference were retained; Stage3 source included edited anchor, cancelled/exception occurrences, published policy and original series receipt.",
+    "race_and_failure_checks": [
+      "Current read delayed across input edit, logout, navigation and newer replay",
+      "Optional history/decision/labels delayed across reference/user/cancel",
+      "Current read network/404/unreadable/wrong-reference failures",
+      "Optional partial/network/404/unreadable/revision mismatch",
+      "Single/pair response loss before and after commit; repair before exact original retry",
+      "Conflict form preservation and stale availability refresh"
+    ],
+    "initial_run_correction": "An initial campaign adapter still targeted the inherited Stage3 port. Corrected the private adapter BASE binding, then the complete 28-group campaign passed; no product change was needed."
+  },
+  "responsive_accessibility": {
+    "viewports_css_px": [
+      375,
+      1280
+    ],
+    "horizontal_page_overflow": false,
+    "checks": [
+      "Visible input labels and native keyboard controls",
+      "Visible keyboard focus and disclosure activation",
+      "Long human labels and 64-character seating-update reference wrapping",
+      "Required routes/forms/confirmation/lookup states",
+      "Locally bundled scripts/styles; no external resource requests"
+    ],
+    "contrast_pairs_passed": 21,
+    "minimum_text_contrast": 5.18,
+    "input_boundary_contrast": 3.98,
+    "screenshots": "Two visually inspected real applied pair-repair stories with synthetic diner/restaurant data; the artificial long-plan boundary response was removed before capture."
+  },
+  "source_audit": {
+    "ownership": "Only the three stage-4/public assets were edited for production; sanitized owner evidence is separate.",
+    "checks": [
+      "node --check stage-4/public/app.js",
+      "git diff --check -- stage-4/public",
+      "Exact tested public/backend Git blob manifest",
+      "No polling/new route/runtime dependency/manager UI/client optimizer/foreign private reads",
+      "All strings escaped; original receipt and Object.freeze request identity untouched"
+    ],
+    "earlier_folders": "Accepted Stage1/2/3 assets and evidence were not modified by this owner."
+  },
+  "sanitization": "Report and screenshots contain no credentials, tokens, passwords, raw exports, raw environment dumps or private booking receipts. Private diagnostics/scripts are outside result.",
+  "known_limits": [
+    "Owner checks are preparation, not independent acceptance.",
+    "Single owner Chromium browser engine; no claim of exhaustive concurrency/optimizer verification.",
+    "Current seating changes on an explicit successful booking/replay/read retry or lookup; no background refresh.",
+    "Backend official owner and independent campaigns are separate ownership."
+  ],
+  "next_owner": "Independent verifier exact integrated production commit campaign, coordinated by Conductor",
+  "screenshots_sha256": {
+    "reassigned-story-1280.png": "f50056aec15306ee5c21fa451b49fa936a68f3f8aba9ba51c51837a59aebc58c",
+    "reassigned-story-375.png": "c516cab17b258e78f7d2733917454e24242d2792640d9a97fdabbd384f487065"
+  },
+  "backend_binding": {
+    "all_nine_runtime_blobs_match_tested_manifest": true,
+    "all_fifteen_backend_build_test_blobs_match_final_systems_r2": true,
+    "systems_owner_reported_regressions_passed": 72,
+    "systems_owner_reported_official_cumulative_passed": 158,
+    "systems_owner_reported_offline_requests_passed": 260,
+    "earlier_three_stage_subtrees_unchanged": true,
+    "independent_acceptance": "pending"
+  }
+}
