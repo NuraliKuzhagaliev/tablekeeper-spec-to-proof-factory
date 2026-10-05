@@ -1,0 +1,72 @@
+{
+  "handoff_id": "EXP-S2-PRODUCTION-001",
+  "status": "OWNER_VERIFIED_PENDING_INDEPENDENT_VERDICT",
+  "frontend_production_commit": "2c431f7e6c0c5ed3bdae232bde255ec24c1bbab3",
+  "backend_commit": "7b44a4c37d032e825aaca1c95a83b81234ddd12c",
+  "accepted_stage_1_commit": "d41a7627711951a07ce7a1718fac47c6ea5b6dd4",
+  "copied_stage_2_baseline": "e301b7e01eb6c824ece966a2e4a0c66b7fdd9c97",
+  "production_ownership": [
+    "stage-2/public/index.html",
+    "stage-2/public/app.js",
+    "stage-2/public/styles.css"
+  ],
+  "verified_blob_ids": {
+    "stage-2/public/index.html": "6d433fa1d1d789638c0421def591578593cf898b",
+    "stage-2/public/app.js": "e3fe773ef8f58ce732ccabdbad19942f04d70db9",
+    "stage-2/public/styles.css": "613ce0e2534a37b78d28cf8090a6b59c8238b83d",
+    "stage-2/domain.py": "89dba265795baec20ad7cb78df2bdb74f6638469",
+    "stage-2/service.py": "a190772231614d7554b798239eab5b646e0266a8",
+    "stage-2/server.py": "1d0354fa9f0dc653efa90259c482d5697ee21086",
+    "stage-2/json_value.py": "2b471d0f332febce5663446150d5ec04aa7add45"
+  },
+  "interaction_architecture": {
+    "navigation": "Same-origin four-route HTML shell, browser history navigation and tab-local authentication state.",
+    "search": "Immutable restaurant/date/party snapshots; restaurant details and availability commit together only for the newest search generation. Conflict refresh has a separate generation and renders only the grid.",
+    "booking": "Each semantic input intent owns an immutable serialized body, key and caller generation. Unchanged submission always contacts the authoritative server with the existing identity. Stale attempts cannot overwrite newer intent or user state.",
+    "feedback": "Distinct idle, sending, confirmed, rejected and uncertain states. Conflict retains form/input values; transport or unreadable response retains retry identity without presenting an error or confirmation.",
+    "compatibility": "Single requests use legacy table_id; pairs use declared-order table_ids. Historical single receipts accept table_id fallback without changing original server JSON. Pending identity remains in memory across import between requests.",
+    "lookup": "Reference/user generations guard reservation and label requests and cancellation. Failed lookup removes prior detail; ambiguous cancellation directs the diner to retrieve authoritative status."
+  },
+  "owner_campaign": {
+    "environment": "Headless Chromium through Playwright against the actual isolated Python HTTP service; agent-browser shell smoke check also passed.",
+    "scenario_groups_passed": 12,
+    "browser_runtime_errors": 0,
+    "checks": [
+      "Four required routes return HTML; consistent navigation; signup, login rejection/recovery, current-user on every route and logout.",
+      "Public browsing, one cell per table/slot, exact data-available, declared-order pair cells, frozen searched party, signed-out selection refusal and closed-day no-slots.",
+      "Single successful replay retains exact body/key/reference and one server effect; changing party creates a new identity and removes previous confirmation.",
+      "Single and pair lost-before-receipt and lost-after-commit responses show uncertainty; unchanged retries preserve exact body/key and recover one authoritative confirmation.",
+      "Unreadable booking JSON is uncertain; delivered validation refusal uses booking-error.",
+      "Held old restaurant detail and availability responses cannot overwrite newer restaurant grid/labels/selected form.",
+      "Pair member conflict retains form/inputs; held conflict refresh cannot rebind a newer search/form.",
+      "Pair lookup labels every member; successful cancellation frees every member and removes its button; stale/unknown lookup cannot restore old detail; cutoff refusal retains confirmed status.",
+      "Held booking replies after an input edit or logout cannot create a confirmation for newer intent or another user.",
+      "Actual separate accepted Stage 1 source exports a committed lost-response booking; Stage 2 imports that private snapshot between requests, without browser reload. Existing sign-in, form, body/key, reference and human labels survive; replay returns the exact original legacy JSON value.",
+      "Pair lost-response recovery after reset/import preserves the body/key; replaying a reversed pair array under the used key returns idempotency_key_reuse.",
+      "375px and 1280px search, long-label grids, pair forms, confirmation, lookup and auth layouts have no horizontal page overflow; keyboard activation/focus and visible input labels checked; runtime resources remain same-origin."
+    ],
+    "syntax": "node --check stage-2/public/app.js passed",
+    "screenshots": ["pair-confirmation-375.png", "pair-confirmation-1280.png"],
+    "screenshot_safety": "Synthetic restaurant/table/display labels and generated synthetic reservation references only. No credentials, sessions, tokens or exports are included."
+  },
+  "responsive_checks": {
+    "css_viewport_widths": [375, 1280],
+    "document_scroll_width_exceeds_viewport": false,
+    "long_labels": true,
+    "input_labels": "Visible and programmatically associated",
+    "keyboard": "Available-cell keyboard activation, form reachability, native semantic controls, apparent focus, skip link and reduced-motion support"
+  },
+  "contrast_review": {
+    "method": "Relative-luminance review of final CSS foreground/background pairs; visual screenshots also inspected. Review thresholds are supporting accessibility checks, not additional specification obligations.",
+    "pairs_checked": 11,
+    "minimum_text_ratio": 5.18,
+    "input_boundary_ratio": 3.98,
+    "review_result": "Text pairs exceed 4.5:1; input boundary and keyboard focus pairs exceed 3:1."
+  },
+  "limitations": [
+    "This report is browser owner evidence and does not accept production. The independent verifier must evaluate the exact integrated full commit SHA.",
+    "Owner campaign ran against an isolated native HTTP process; container and official harness acceptance belong to the independent verifier.",
+    "No background polling, cross-tab synchronization or pending-attempt recovery across reload is implemented, as scoped by the contract."
+  ],
+  "next_owner": "Conductor for exact integrated revision handoff, then Adversarial Verifier for independent verdict"
+}
