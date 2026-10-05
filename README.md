@@ -2,6 +2,279 @@
 
 > A four-stage Tablekeeper submission produced by a five-seat autonomous software factory in BAND Desktop, with independent exact-revision verification and zero human steering after the initial dispatch.
 
+## Live demo
+
+**Public Stage 4 demo:**  
+https://tablekeeper-spec-to-proof-factory.onrender.com
+
+**Demo account**
+
+```text
+Email: demo@example.com
+Password: password123
+```
+
+The demo runs the same Stage 4 service as the submission. It uses the specification's intentionally ephemeral in-memory state.
+
+> **Render Free may restart/sleep the service.** If the restaurant list is empty after a restart, use the PowerShell seed block in [Seed the demo](#seed-the-demo). The judged repository itself does not depend on Render or any external state service.
+
+Quick health check:
+
+```text
+https://tablekeeper-spec-to-proof-factory.onrender.com/health
+```
+
+---
+
+## Choose how you want to evaluate it
+
+### Option A — Open the live demo
+
+1. Open https://tablekeeper-spec-to-proof-factory.onrender.com
+2. If restaurants are visible, use the demo normally.
+3. Sign in with:
+   - `demo@example.com`
+   - `password123`
+4. Search availability, choose a table, book it, and open **Your reservation**.
+5. If the restaurant list is empty because the free Render instance restarted, run the seed block below once and refresh.
+
+### Option B — Run the accepted Stage 4 service locally with Docker
+
+```bash
+git clone https://github.com/NuraliKuzhagaliev/tablekeeper-spec-to-proof-factory.git
+cd tablekeeper-spec-to-proof-factory/stage-4
+
+docker build -t tablekeeper-stage-4 .
+docker run --rm -e PORT=8080 -p 8080:8080 tablekeeper-stage-4
+```
+
+Then open:
+
+```text
+http://localhost:8080/
+```
+
+Health:
+
+```text
+http://localhost:8080/health
+```
+
+To populate the local instance with the same demo catalogue, use the PowerShell seed block below and set:
+
+```powershell
+$BaseUrl = "http://localhost:8080"
+```
+
+### Option C — Inspect the full judged submission and factory evidence
+
+Start with:
+
+1. [FACTORY.md](FACTORY.md) — reusable factory architecture, setup, design choices, cost/time, failure handling
+2. [FINAL_REPORT.md](FINAL_REPORT.md) — judged-run completion report and accepted SHAs
+3. [evidence/final/official-all-stages.md](evidence/final/official-all-stages.md) — fresh final cumulative official gate
+4. [evidence/releases/](evidence/releases/) — release provenance
+5. [room.json](room.json) — full BAND room transcript for the submitted run
+6. Git history — implementation, rejection, repair, verification and release provenance
+
+---
+
+## Seed the demo
+
+The following PowerShell block replaces the current runtime state with a presentation-ready catalogue of six restaurants.
+
+It is safe to rerun. `/_test/reset` is part of the required Tablekeeper test/runtime contract and atomically replaces the in-memory state.
+
+For the hosted Render demo:
+
+```powershell
+$BaseUrl = "https://tablekeeper-spec-to-proof-factory.onrender.com"
+```
+
+For a local Docker instance:
+
+```powershell
+$BaseUrl = "http://localhost:8080"
+```
+
+Then run:
+
+```powershell
+$body = @{
+  users = @(
+    @{
+      id = "u_demo"
+      email = "demo@example.com"
+      password = "password123"
+      display_name = "Demo Guest"
+    }
+  )
+
+  restaurants = @(
+
+    @{
+      id = "r_aurelia"
+      name = "Maison Aurelia"
+      timezone = "Europe/Berlin"
+      slot_minutes = 30
+      reservation_duration_minutes = 90
+      cancellation_cutoff_minutes = 120
+      opening_hours = @(
+        @{ weekday="mon"; opens="17:00"; closes="23:00" },
+        @{ weekday="tue"; opens="17:00"; closes="23:00" },
+        @{ weekday="wed"; opens="17:00"; closes="23:00" },
+        @{ weekday="thu"; opens="17:00"; closes="23:00" },
+        @{ weekday="fri"; opens="17:00"; closes="23:30" },
+        @{ weekday="sat"; opens="17:00"; closes="23:30" },
+        @{ weekday="sun"; opens="17:00"; closes="22:00" }
+      )
+      tables = @(
+        @{ id="a1"; label="Window for two"; capacity=2 },
+        @{ id="a2"; label="Garden table"; capacity=4 },
+        @{ id="a3"; label="Family table"; capacity=6 }
+      )
+    },
+
+    @{
+      id = "r_osteria"
+      name = "Osteria Verde"
+      timezone = "Europe/Rome"
+      slot_minutes = 30
+      reservation_duration_minutes = 120
+      cancellation_cutoff_minutes = 180
+      opening_hours = @(
+        @{ weekday="mon"; opens="18:00"; closes="23:00" },
+        @{ weekday="tue"; opens="18:00"; closes="23:00" },
+        @{ weekday="wed"; opens="18:00"; closes="23:00" },
+        @{ weekday="thu"; opens="18:00"; closes="23:30" },
+        @{ weekday="fri"; opens="18:00"; closes="23:30" },
+        @{ weekday="sat"; opens="17:30"; closes="23:30" },
+        @{ weekday="sun"; opens="17:30"; closes="22:30" }
+      )
+      tables = @(
+        @{ id="o1"; label="Candlelit table"; capacity=2 },
+        @{ id="o2"; label="Courtyard table"; capacity=4 },
+        @{ id="o3"; label="Long family table"; capacity=8 }
+      )
+    },
+
+    @{
+      id = "r_lumiere"
+      name = "Atelier Lumiere"
+      timezone = "Europe/Paris"
+      slot_minutes = 30
+      reservation_duration_minutes = 90
+      cancellation_cutoff_minutes = 240
+      opening_hours = @(
+        @{ weekday="mon"; opens="18:30"; closes="22:30" },
+        @{ weekday="tue"; opens="18:30"; closes="22:30" },
+        @{ weekday="wed"; opens="18:30"; closes="22:30" },
+        @{ weekday="thu"; opens="18:30"; closes="23:00" },
+        @{ weekday="fri"; opens="18:30"; closes="23:00" },
+        @{ weekday="sat"; opens="18:00"; closes="23:00" },
+        @{ weekday="sun"; opens="18:00"; closes="22:00" }
+      )
+      tables = @(
+        @{ id="l1"; label="Salon table"; capacity=2 },
+        @{ id="l2"; label="Terrace table"; capacity=4 },
+        @{ id="l3"; label="Chef's room"; capacity=6 }
+      )
+    },
+
+    @{
+      id = "r_sakura"
+      name = "Sakura House"
+      timezone = "Asia/Tokyo"
+      slot_minutes = 30
+      reservation_duration_minutes = 90
+      cancellation_cutoff_minutes = 120
+      opening_hours = @(
+        @{ weekday="mon"; opens="17:30"; closes="22:30" },
+        @{ weekday="tue"; opens="17:30"; closes="22:30" },
+        @{ weekday="wed"; opens="17:30"; closes="22:30" },
+        @{ weekday="thu"; opens="17:30"; closes="22:30" },
+        @{ weekday="fri"; opens="17:30"; closes="23:00" },
+        @{ weekday="sat"; opens="17:00"; closes="23:00" },
+        @{ weekday="sun"; opens="17:00"; closes="22:00" }
+      )
+      tables = @(
+        @{ id="s1"; label="Tatami for two"; capacity=2 },
+        @{ id="s2"; label="Garden booth"; capacity=4 },
+        @{ id="s3"; label="Private room"; capacity=6 }
+      )
+    },
+
+    @{
+      id = "r_ember"
+      name = "Ember & Oak"
+      timezone = "Europe/London"
+      slot_minutes = 30
+      reservation_duration_minutes = 120
+      cancellation_cutoff_minutes = 120
+      opening_hours = @(
+        @{ weekday="mon"; opens="17:00"; closes="23:00" },
+        @{ weekday="tue"; opens="17:00"; closes="23:00" },
+        @{ weekday="wed"; opens="17:00"; closes="23:00" },
+        @{ weekday="thu"; opens="17:00"; closes="23:00" },
+        @{ weekday="fri"; opens="17:00"; closes="23:30" },
+        @{ weekday="sat"; opens="16:30"; closes="23:30" },
+        @{ weekday="sun"; opens="16:30"; closes="22:00" }
+      )
+      tables = @(
+        @{ id="e1"; label="Fireplace table"; capacity=2 },
+        @{ id="e2"; label="Oak booth"; capacity=4 },
+        @{ id="e3"; label="Feasting table"; capacity=8 }
+      )
+    },
+
+    @{
+      id = "r_nocturne"
+      name = "Nocturne Dining"
+      timezone = "America/New_York"
+      slot_minutes = 30
+      reservation_duration_minutes = 90
+      cancellation_cutoff_minutes = 180
+      opening_hours = @(
+        @{ weekday="mon"; opens="17:30"; closes="23:00" },
+        @{ weekday="tue"; opens="17:30"; closes="23:00" },
+        @{ weekday="wed"; opens="17:30"; closes="23:00" },
+        @{ weekday="thu"; opens="17:30"; closes="23:30" },
+        @{ weekday="fri"; opens="17:30"; closes="23:30" },
+        @{ weekday="sat"; opens="17:00"; closes="23:30" },
+        @{ weekday="sun"; opens="17:00"; closes="22:30" }
+      )
+      tables = @(
+        @{ id="n1"; label="Velvet table"; capacity=2 },
+        @{ id="n2"; label="Library booth"; capacity=4 },
+        @{ id="n3"; label="Private dining room"; capacity=10 }
+      )
+    }
+  )
+
+  reservations = @()
+} | ConvertTo-Json -Depth 12
+
+Invoke-RestMethod `
+  -Uri "$BaseUrl/_test/reset" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body $body
+
+Write-Host "Demo seeded. Open: $BaseUrl"
+Write-Host "Login: demo@example.com / password123"
+```
+
+Expected restaurant catalogue:
+
+- Maison Aurelia
+- Osteria Verde
+- Atelier Lumiere
+- Sakura House
+- Ember & Oak
+- Nocturne Dining
+
+---
+
 ## Submission snapshot
 
 - **Track:** Tablekeeper
@@ -120,17 +393,6 @@ All required populated paths passed:
 ├── stage-3/
 └── stage-4/
 ```
-
-## Run Stage 4 locally
-
-From `stage-4/`:
-
-```bash
-docker build -t tablekeeper-stage-4 .
-docker run --rm -e PORT=8080 -p 8080:8080 tablekeeper-stage-4
-```
-
-Then open `http://localhost:8080/`.
 
 ## Evidence entry points
 
