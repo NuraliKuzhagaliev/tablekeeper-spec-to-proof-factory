@@ -1,168 +1,369 @@
 # Stage 1 independent verification
 
-VERDICT: REJECT
+VERDICT: ACCEPT
 
-REVISION: `b03ce55647b70a46f478ea50ba077e02945bcefe`
+REVISION: `d41a7627711951a07ce7a1718fac47c6ea5b6dd4`
 
-Two HIGH product defects independently reproduced in the container built from the exact clean pinned revision. This is a targeted rejection gate, released by Conductor in room message `406df998-413e-42c1-ac42-6b763ef72cdd`. As directed, the full expensive campaign and official isolated acceptance harness are deferred to a replacement FULL production SHA. No ACCEPT is asserted, and no production file was changed by the verifier.
+This verdict applies only to the exact Stage 1 production tree in this committed revision, released by Conductor in room message `f970bfcc-47d2-4470-9be2-b3fd3dc8290c`. The official isolated harness passes 120/120 checks. All 30 distinct independent cases have passing evidence, including the two previously rejected counterexamples. No reproducible blocking product defect remains.
 
-## Defect TK1-VERIFY-001
+SPECIFICATION COVERAGE: All 187 canonical obligations are closed in the traceability table below: 66 CRITICAL, 109 HIGH and 12 other. Closure combines independent HTTP observations, supplied checks and the explicitly identified source inspections where black-box evidence cannot establish an internal property. Generic 403 behavior has no applicable Stage 1 permission route; specified foreign-reservation responses are independently verified as 404. Source provenance is assessed through repository/source/dependency inspection, rather than claimed as a mathematical proof of authorship.
 
-DEFECT ID: TK1-VERIFY-001
+OFFICIAL CHECKS: 120 collected, 120 passed; zero failed, errors, skipped, deselected or xfailed. Mode isolated, state completed, Stage 1 pass. The report's generic working-tree provenance refers to the clean read-only native clone of the assigned commit, with exact revision verified before and after execution; it does not refer to shared mutable HEAD.
 
-REQUIREMENT: §3.4 unknown request fields are ignored without error; §5 reserves malformed_request for unparseable JSON/wrong field types. Canonical TK1-HTTP-03, TK1-ERR-02; V03/V06/V18.
+INDEPENDENT ROBUSTNESS CHECKS: 30 distinct cases PASS, six controlled oracle variants detected, coordinated barriers up to 50 workers, response and final-state audits. Across closure, main, repaired verifier checkpoints, supplementary boundary checks and the mapped-port probe, 1,044 observed HTTP requests were issued. This count excludes official harness traffic and readiness polling; it includes legacy-source calls and setup requests in the recovered verifier case.
 
-SEVERITY: HIGH
+COMPATIBILITY CHECKS: Current exports transfer unchanged across separately started source, destination and third processes with distinct ports and no shared state volume. Source is Docker-paused and its unavailable state inspected before destination import. Two existing sessions, hashed-password login, configuration, exact reservation values, cancelled states, historical create/batch responses and retry semantics survive. Import removes destination credentials/records/receipts; repeated import restores a snapshot; invalid import preserves state/login/receipts; reset clears imported state and receipts. A separately built, paused old revision also supplies a legacy direct-object export accepted by the new revision. These additional legacy tests do not transfer acceptance from the rejected revision.
 
-CLASSIFICATION: PRODUCT DEFECT
+CLEAN-ENVIRONMENT CHECKS: Native detached clone `/home/nurali/av-stage1-d41a7627-review-847ab33d`, no linked worktree, no hardlinks, tracked source read-only, clean exact SHA before/after. Docker 29.8.0; host verifier Python 3.14.4; submitted image Python 3.13 with bundled Debian tzdata. The authoritative readonly harness checkout is `/mnt/d/dark/dark-factory-wearedevs` at `803560d2a678ace1414465c098eb0ab5380ffade`; its tracked differences were EOL-only and no check was edited. Unique owned Docker resources were cleaned. Final owned container/network listings are empty.
 
-REPRODUCTION: `ignored_numeric_receipt_boundaries` in `campaign.py`. First reset the ordinary generated fixture successfully and log in. Send `POST /_test/reset`, Content-Type application/json; charset=utf-8, with the same valid fixture and an extra unknown top-level field whose literal JSON value is `1e309`. Exact construction: `encode_json(fixture())[:-1] + ',"ignored":1e309}'`. Fixture credentials are generated in memory and never recorded. The supplied numeric token is valid finite JSON numeric syntax; it is not the invalid constant Infinity.
+KNOWN LIMITATIONS: Verification uses bounded datasets and the specified maximum concurrent in-flight request count; unbounded dataset performance is not established. Hidden checks are unavailable. Gap-valued opening/closing boundaries are unspecified by the contract and are not invented blockers. Exact cutoff equality is inspected in source with wide and live before/after HTTP boundaries; there is no controllable server clock. Ephemeral state and absence of restart persistence comply with the contract. Provenance inspection cannot establish the historical origin of every character of an implementation.
 
-EXPECTED: 204 No Content; install the fixture while ignoring the unknown field.
+EVIDENCE ARTIFACTS: `campaign.py` is the executable independent HTTP campaign/oracle; `run_campaign.py` orchestrates immutable-SHA builds, isolated official checks, runtime constraints and checkpoint recovery; `runtime_probe.py` verifies actual Docker-assigned published mapping; this report is the consolidated verdict and coverage surface. Only these four owned verifier files belong to the evidence commit. Raw exports, credentials, bearer values and environments were not written or committed. The evidence commit is reported separately from the tested production SHA.
 
-OBSERVED: 400 with `error.code = malformed_request`.
+## Requirement authority and prior defects
 
-EVIDENCE: Campaign run `av-stage1-b03ce55647b7-88f033a9`, independent-summary.json and independent-console.log under the external diagnostic directory below. The same failure was independently reproduced in the preceding run `av-stage1-b03ce55647b7-df3ec2fd`.
+The single canonical ledger is `evidence/stage-1/requirements.md` at evidence-only commit `d2f8b20705cc12cb0f0995f04bdc80f9dcb29a57`: 187 records, V01..V20, precedence and compatibility matrix. Later auditor finding annotations do not change those stable requirement IDs. The verifier does not modify the auditor's ledger.
 
-AFFECTED SCOPE: Transport parses all POST/PATCH bodies with a binary-float converter that rejects overflow before unknown-field handling. The executed counterexample is reset; the shared parser exposes other write routes to the same rejection path. No broader route was silently marked tested.
+The prior exact revision `b03ce55647b70a46f478ea50ba077e02945bcefe` was formally REJECTED in sanitized evidence commit `f476314d258a8e1955a58c9182d9ab9c009a62df`. Its two HIGH product defects remain audit history; this replacement is independently tested.
 
-REGRESSION RISK: A repair must preserve exact parsed-body equality and receipt transfer for large finite numbers without accepting non-JSON NaN/Infinity or turning numbers into strings. The executable case already includes replay, changed-number conflict and export/import assertions after this first failing step; those later assertions were NOT REACHED on the rejected revision.
-
-REQUIRED OUTCOME: Accept valid JSON unknown numeric fields without a parse error. Preserve original JSON values through receipt comparison, export and import; retain malformed_request for invalid JSON constants/syntax. Release a new exact FULL production SHA for independent re-verification.
-
-## Defect TK1-VERIFY-002
-
-DEFECT ID: TK1-VERIFY-002
-
-REQUIREMENT: §§4,8 permit arbitrary valid calendar dates and require every fitting grid slot in availability; §5 invalid-format rules do not make a valid date invalid. Canonical TK1-AV-04, TK1-TIME-01; V08/V09.
-
-SEVERITY: HIGH
-
-CLASSIFICATION: PRODUCT DEFECT
-
-REPRODUCTION: `calendar_extremes` in `campaign.py`. Reset a UTC restaurant `r`, open every weekday 18:00..23:00, `slot_minutes = 1440`, duration 90 minutes, cutoff 120 minutes, with fixture-order tables `z` capacity 4, `a` capacity 2, `m` capacity 6. Request `GET /availability?restaurant_id=r&date=9999-12-31&party_size=2` without authentication. The same fixture first successfully serves date 0001-01-01 and creates its reservation; it has no booking on 9999-12-31.
-
-EXPECTED: 200 with one fitting slot: local `9999-12-31T18:00`, instant `9999-12-31T18:00:00+00:00`, and available tables `["z","a","m"]` in fixture order.
-
-OBSERVED: 422 with `error.code = validation_failed`.
-
-EVIDENCE: Same run and independent-summary.json as TK1-VERIFY-001; separately executed case, so the numeric failure did not prevent the calendar reproduction. Both runs reproduced this outcome.
-
-AFFECTED SCOPE: Availability advances its local grid candidate beyond the final representable calendar date after already generating a fitting slot; transport turns the resulting OverflowError into validation_failed. The executed boundary is UTC/date 9999-12-31/1440-minute step.
-
-REGRESSION RISK: Grid termination must preserve unusual opening anchors, exact closing fits, large positive slot steps, closed days and DST first-occurrence/absolute-duration behavior. Do not add an undocumented calendar-date restriction to avoid the overflow.
-
-REQUIRED OUTCOME: Return all fitting slots for valid dates without overflowing the final unused grid increment. Release a new exact FULL production SHA and pass both targeted reproductions plus the complete interacting campaign.
-
-## Executed evidence and limits
-
-| Check | Outcome |
-|---|---|
-| Exact materialization | Clean detached Linux-native clone; before/after SHA b03ce55647b70a46f478ea50ba077e02945bcefe; tracked production state remains clean |
-| Docker build | PASS from pinned stage-1/Dockerfile |
-| Offline runtime | PASS: unique Docker network inspected Internal=true; separate containers, no shared state volume |
-| Resource configuration | 2 vCPU / 2 GiB per service; custom PORT 8765 and 8766; no host port assumptions |
-| Readiness | Source 1.092 s; destination 1.276 s; allowed budget 60 s |
-| Targeted independent cases | 2 executed; 2 PRODUCT DEFECT failures |
-| HTTP budgets in targeted run | 8 requests; max ordinary 0.0299 s; max control 0.0846 s; budgets 5 s / 10 s |
-| Calibration | PASS: closed-interval, second-fold and wall-duration variants distinguished; exact large-number serializer checked |
-| Official checks | NOT RUN by independent verifier on this SHA, per Conductor's targeted-rejection instruction |
-| Full concurrency/privacy/DST/transfer campaign | NOT RUN on this rejected SHA; prepared cases below are future gates, not passing evidence |
-| Cleanup | All owned campaign containers/network/image removed; unrelated resources preserved; native pinned clone and external diagnostics retained |
-
-External diagnostics: `/mnt/d/dark/band-work/checks/av-stage1-b03ce55647b7-88f033a9` (Windows `D:\dark\band-work\checks\av-stage1-b03ce55647b7-88f033a9`). Raw diagnostics remain outside the result repository. Only sanitized observations and executable verifier code are committed.
-
-Executed campaign SHA256: `51efd1941daadac48dd3499c59fb47c80c6040557f6c7632d0bd90ec50546eb6`.
-
-Executed orchestrator SHA256: `0f5bae349c877a32a03bca50e50b1f33fb73b508763821f2a5bff1dbae415318`.
-
-Reproduce this targeted exact-revision gate from WSL Ubuntu:
-
-```sh
-source ~/.venvs/dark-factory/bin/activate
-python /mnt/d/dark/band-work/result/evidence/stage-1/run_campaign.py --released --revision b03ce55647b70a46f478ea50ba077e02945bcefe --boundary-only --materialized /home/nurali/av-stage1-b03ce556-review-8810cfb1
-```
-
-Evidence remains tied to this production SHA even while shared HEAD and production repairs advance. No acceptance transfers to a replacement revision.
-
-Authoritative specification: complete Tablekeeper Stage 1 contract supplied by Conductor in room message `00df3272-622a-4c08-b0b3-60ab0b13e0cf`. Baseline recorded as `a0ba09453b7630fcb5eed6982fe19a9a1aa0eb73`; this baseline is not a tested production revision.
-
-Canonical ledger handoff: commit `d2f8b20705cc12cb0f0995f04bdc80f9dcb29a57`, containing only Contract Auditor's `requirements.md`; reported final ledger has 187 records (66 CRITICAL, 109 HIGH). This evidence-only revision is not a production verification release. Subsequent working ledger findings identify targeted regressions at production `b03ce55647b70a46f478ea50ba077e02945bcefe`; those peer findings are inputs to case preparation, not this verifier's executed evidence or verdict.
-
-Systems handoff `STAGE1-PRODUCTION-001` supplied candidate SHA `b03ce55647b70a46f478ea50ba077e02945bcefe`. A clean detached Linux-native clone was materialized at `/home/nurali/av-stage1-b03ce556-review-8810cfb1`, with tracked stage source made read-only. Both `git rev-parse HEAD` and empty porcelain status confirmed the pinned state. Conductor subsequently released this exact SHA for targeted reproductions and a formal rejection, deferring the full campaign to its replacement.
-
-Preliminary source observations for that exact candidate only: seeded/signup accounts store salted scrypt hashes (`n=16384`, `r=8`, `p=1`), not raw passwords; hash verification uses constant-time digest comparison. A single RLock encloses dispatch and deep-copying responses; export/import/reset and successful receipt publication share this boundary. Docker bundles timezone data and standard-library runtime code; transport binds 0.0.0.0 using PORT with fallback 8080. These observations do not substitute for the unexecuted full campaign. The numeric/date failure paths were independently confirmed over HTTP as reported above.
-
-## Revision and execution gate
-
-The verifier will materialize the released 40-character SHA into a clean Linux-native detached clone, preserve that clone for review/recovery, and freeze tracked source files. It will never execute against mutable shared HEAD or use Windows/WSL linked worktrees. Evidence commits will be distinct from the tested production revision.
-
-`run_campaign.py` requires both a full SHA and an explicit release flag. It independently builds that exact stage directory, runs the unmodified supplied harness in isolated mode, then tests three disposable containers on a unique internal Docker network under 2 vCPU / 2 GiB limits per service. Two containers use distinct non-default PORT values, 8765 and 8766; the third omits PORT and must use 8080. No host port assumptions are required for internal-network tests. Container/network names are unique to each campaign. Only resources owned by that run are removed. The source is paused by the orchestrator before final transfer checks; imports and the A -> B -> C continuity check run with A unavailable.
-
-Raw official logs and runtime diagnostics go outside result, under `/mnt/d/dark/band-work/checks/av-stage1-<sha-prefix>-<nonce>`. Tokens, fixture passwords, passwords from service state, and opaque exports stay in process memory; they are never written into evidence or diagnostics by the independent HTTP campaign. The executable generates fixture passwords in memory; no literal usable credential is committed.
-
-## Preparation evidence
-
-- Linux distribution: WSL Ubuntu. Docker server 29.8.0; Python 3.14.4 in `~/.venvs/dark-factory`.
-- Observed host memory: 7,748 MiB total, 6,543 MiB available at preflight. Native `/tmp`: approximately 3.8 GiB available. Preflight will be refreshed at execution.
-- Official checkout: `/mnt/d/dark/dark-factory-wearedevs`, revision `803560d2a678ace1414465c098eb0ab5380ffade`. Tracked status reports line-ending changes; `git diff --ignore-space-at-eol --stat` is empty. No official file was edited by this verifier. Exact official provenance and suite digest will be recorded with execution.
-- No stale containers carrying the verifier ownership label were present at preparation. Existing unrelated containers were left alone.
-- Python syntax validation passed for `campaign.py` and `run_campaign.py`.
-- Independent oracle calibration passed. Controlled disposable predicate variants for closed-interval overlap, second occurrence of repeated local times, and wall-clock rather than absolute duration are distinguished by the boundary cases. This is oracle calibration, not end-to-end mutation validation of the production service.
-- Shared assignment #3 is in progress. Contract Auditor's canonical `requirements.md` has been read, and uncovered CRITICAL/HIGH cases have been added without editing that seat's evidence. Exact-SHA result traceability will reference its stable TK1 requirement IDs and V01..V20 procedures. Preparation does not close any requirement as production-verified.
-
-## Consolidated coverage map
-
-| Contract | Independent campaign case | Evidence intended |
+| Defect | Prior expected / observed | Replacement evidence and outcome |
 |---|---|---|
-| §§3.4, 5, 7, 10 | `ignored_numeric_receipt_boundaries` | Finite valid JSON numeric syntax 1e309 in unknown fields, exact replay/conflict and receipt transfer without binary-float overflow; reject non-JSON NaN/Infinity |
-| §§8, 9 | `calendar_extremes` | Dates 0001-01-01 and 9999-12-31 with a 1440-minute slot step; independent checks remain separate so one failure cannot hide the other |
-| §§3, 6, 8 | `public_auth_reset` | Public browse with unknown token, restaurant fixture detail, unauthenticated/private access, signup/login validation, multiple sessions, repeated reset invalidates tokens |
-| §§1, 4, 8 | `availability_oracle` | Enumerated opening grids (30/90, 17/43, 45/120), capacity thresholds, fixture order, occupied/empty slots, cancellation release, closed days |
-| §§3, 5, 7, 8 | `validation` | Body parse/types, missing fields, party-size exceptions, bare-local format, impossible dates, decimal-only query counts, keys absent/empty/1/255/256 |
-| §§1, 8 | `booking_boundaries_privacy` | Opening/end/grid boundaries, half-open adjacency, overlap rejection, hidden foreign lookup/cancel/amend, descending order, repeated cancel |
-| §7 | `receipt_semantics` | JSON ordering/whitespace equivalence, unknown-field differences, reuse precedes field/current-resource checks, failed keys reusable, caller scoping, same body/key across distinct paths, original receipts after amendment/cancel |
-| §§4, 8 | `amendments_atomic_cutoff` | Failed amendments preserve records/occupancy, successful move releases old slot, identities persist, historical creation, current-start cutoff and precedence |
-| §9 | `dst_oracle` | All four specified Berlin/New York transitions; exhaustive independent availability; skipped hour rejection, first fold, absolute duration and offsets, occupied slots across transitions |
-| §11 | `moves_atomic_precedence` | Three-way cyclic swap, response input order, no-op values, occupancy vs non-occupancy precedence, input-order failures, shape/duplicates, ownership privacy, failed keys reusable, historical receipts |
-| §11 | `moves_eight_and_restaurant_scope` | Eight-item cyclic move, cross-restaurant table rejection, mixed-restaurant atomic rejection |
-| §§3, 4, 8, 11 | `seed_ids_and_batch_cutoff` | Fixture identities of length 64, seeded lookup and occupancy, half-open seed boundary, overlap among resulting bookings, batch cutoff before changes, rollback and retry |
-| §§5, 7, 8, 9, 11 | `patch_and_batch_field_validation` | PATCH and batch type/value/grid/hours/capacity errors and full rollback; both amendment routes reject skipped local times; batch key length boundaries |
-| §§1, 7 | `concurrency_identical_50` | Coordinated 50-way identical creation: one 201, 49 identical 200 receipts, one record |
-| §§1, 7 | `concurrency_distinct_50` | Coordinated 50-way contention: one booking, 49 table-unavailable errors, failed key reusable |
-| §§1, 7 | `concurrency_changed_key_50` | Coordinated same-key/different-body competition: one initial response, matching receipts, changed-body conflicts, one record |
-| §§1, 7, 11 | `concurrency_batch_snapshot` | 25 identical swaps and 25 readers start together; one 201 and 24 replays; readers observe complete before/after state |
-| §§1, 6, 7 | `concurrency_signup_and_users` | Coordinated duplicate signup and different owners contending the same table; one identity/one booking |
-| §§10, 11 | `export_atomic_batch` | Export races a multi-record swap; each imported snapshot has complete before/after records with the corresponding receipt; export is read-only |
-| §§3, 10 | `control_replacement_races` | Reset and import overlap authenticated writes; resulting configuration, credentials, tokens, records, receipts and occupancy form one replacement generation |
-| §§7, 8, 11 | `patch_batch_cancel_replay_races` | PATCH races a batch on the same record; occupancy agrees with final state; cancellation racing replays cannot resurrect a booking |
-| §10 | `snapshot_import_receipts` | Source unavailable during transfer, A -> B -> C chaining, cross-process replacement, source writes after snapshot, repeated import, original identities/timestamps/statuses, multiple bearer sessions, hashed-password login continuity, create/batch receipts, failed key reuse, destination credential removal, malformed/invalid import rollback including login and receipt checks, reset after import |
-| §§2, 3 | orchestration + supplied isolated harness | Docker build, single-container seed/dependencies, offline runtime, default/non-default PORT, readiness ≤60 s, requests ≤5 s, controls ≤10 s, CPU/memory limits |
-| §6 | pinned source review (pending release) | Actual password-hashing function and absence of plaintext credential storage; HTTP behavior alone cannot establish storage representation |
+| TK1-VERIFY-001 | Valid fixture plus ignored literal numeric `1e309`: expected reset 204; prior observed 400 malformed_request. TK1-HTTP-03 / TK1-ERR-02. | `ignored_numeric_receipt_boundaries` PASS in closure and main runs. Large ignored values parse, semantically equivalent encodings replay, changed numbers conflict, original receipts survive cancellation and import without new effects. |
+| TK1-VERIFY-002 | UTC all-week 18:00..23:00, slot 1440, duration 90, date 9999-12-31: expected availability 200 / one 18:00 slot; prior observed 422 validation_failed. TK1-AV-04 / TK1-TIME-01. | `calendar_extremes` PASS for years 0001, ordinary and 9999. `terminal_zone_instants` additionally passes local dates whose UTC instants cross year 0 or 10000, with exact independent integer-instant overlap/receipt/import audit. |
 
-The oracle uses only fixture data, Python IANA zone data, UTC interval arithmetic, and independently enumerated wall-clock grid points. It does not import, copy, or reuse production decision code. Cases reset isolated service state individually and retain only sanitized case results, status/code mismatches, request counts, and timing summaries.
+## Official and independent evidence checkpoints
 
-Canonical procedure correlation: V01 orchestration and pinned delivery/source review; V02 public_auth_reset/seed_ids_and_batch_cutoff/control_replacement_races; V03 validation/patch_and_batch_field_validation; V04 public_auth_reset/concurrency_signup_and_users plus pinned hash review; V05 public_auth_reset/booking_boundaries_privacy/moves_atomic_precedence; V06 receipt_semantics/patch_and_batch_field_validation; V07 public_auth_reset/moves_eight_and_restaurant_scope; V08 availability_oracle; V09 dst_oracle/patch_and_batch_field_validation; V10 booking_boundaries_privacy/seed_ids_and_batch_cutoff; V11 booking_boundaries_privacy plus supplied checks/source review; V12 amendments_atomic_cutoff plus pinned exact-cutoff comparison review; V13 amendments_atomic_cutoff/patch_and_batch_field_validation; V14 moves_atomic_precedence/moves_eight_and_restaurant_scope/seed_ids_and_batch_cutoff; V15 receipt_semantics/snapshot_import_receipts; V16 coordinated concurrency cases; V17 export_atomic_batch; V18 snapshot_import_receipts; V19 snapshot_import_receipts; V20 control_replacement_races/export_atomic_batch/patch_batch_cancel_replay_races. Catalogue recommendations beyond these concrete cases are not silently marked passed; any remaining critical/high coverage gap at release will be addressed or reported before verdict.
+All diagnostics below are outside the result repository under `D:/dark/band-work/checks` (WSL `/mnt/d/dark/band-work/checks`). Diagnostic summaries contain sanitized outcomes/counts; opaque state/session values remain only in test memory. The campaign reports any assertion failure explicitly rather than writing response bodies containing private values.
 
-`ignored_numeric_receipt_boundaries` and `calendar_extremes` additionally cover V03/V06/V08/V09/V18 and run first in the independent HTTP campaign. Its serializer and parser preserve exact finite JSON numbers independently using Decimal; opaque state containing such receipts is transferred without changing numeric values into Infinity or strings.
+| Checkpoint | Run directory | Observed outcome |
+|---|---|---|
+| Prior counterexample closure | `av-stage1-d41a76277119-21a9300c` | 2 cases PASS; 19 requests. |
+| Official isolated | `av-stage1-d41a76277119-d3d96380/official` | 120/120 PASS; complete exact-SHA report. |
+| Main independent | `av-stage1-d41a76277119-27d82820` | 27 PASS; one verifier OverflowError in expected terminal-date grid construction; 963 requests. Valid completed cases retained. |
+| Corrected terminal case | `av-stage1-d41a76277119-08282f26` | 1 PASS; 20 requests; only affected case repeated. |
+| Reset/import receipt erasure | `av-stage1-d41a76277119-25c76c65` | 1 PASS; 19 requests; same fixture user IDs expose leftover receipts. |
+| DST resolved closing boundaries | `av-stage1-d41a76277119-bd0a160c` | 1 PASS; 20 requests; four transitions and resolved closing instants. |
+| Standalone published port | `av-published-d41a76277119-505de904` | Health 200, empty reset 204, public restaurants 200; 3 requests. |
 
-## Full campaign after replacement release
+Official report: `av-stage1-d41a76277119-d3d96380/official/report.json`; suite digest `c4272f6e544cb878ece8469c1eab3b477216701f92f0a5d1111e5e591e67bd09`. UTC start 2026-10-05T15:40:55.424666+00:00, finish 15:41:38.187850+00:00 (42.763 seconds including harness work). File counts: health/reset/auth 12, reservations 37, restaurant/availability 18, retries/time/input 20, sample 20, seeded state 13. The expected unsuccessful Stage 2 overshoot probe is outside the released Stage 1 contract and is not a Stage 1 defect.
 
-From WSL Ubuntu, with the authorized exact SHA substituted:
+The main summary deliberately retains its original `all_passed: false` and verifier error. The consolidated verdict is based on its 27 valid passing cases plus the independently successful replacement terminal checkpoint and two additional coverage closures; it does not rewrite or conceal original diagnostics.
+
+## Runtime and budget observations
+
+Every independent service runs with enforced 2 vCPU and 2 GiB Docker limits. Main campaign uses a unique internal Docker network (`Internal=true`) without outbound runtime access. Service ports are 8765/8766, third 8080 with PORT omitted, and legacy source 8899. No shared database/files/volume or source address is required for state transfer. Build-time access only supplies image/tzdata dependencies; all service runtime dependencies are packaged.
+
+Maximum observed ordinary request duration across independent checks is 0.0766821 seconds; maximum control call is 0.0875098 seconds. These are below the actual 5/10-second contract budgets. Main current-revision readiness is 1.586/1.799/1.982 seconds; old legacy source 2.220 seconds. Other current services are ready within 1.328 seconds; the separate published-port service is ready in 0.736 seconds. All are within the actual 60-second readiness allowance. The live cutoff case's 68.377-second overall case duration includes intentional clock-boundary waiting; each HTTP request still uses its own contract timeout.
+
+The independent publication probe runs the submitted image alone with custom PORT 8987 and Docker-assigned host mapping 127.0.0.1:52466, queried from Docker rather than assumed. HostConfig confirms NanoCpus 2000000000 and memory 2147483648. Its native Windows HTTP client reaches the container over the actual mapping. This publication phase uses a bridge network; outbound isolation is established separately by the main internal-network campaign. RUN.md's single-image build/start command and default/custom binding are also inspected.
+
+## Independent models, stress and ordering
+
+The independent oracle imports no production module and uses no production decision logic. It enumerates local minute grids from the supplied opening anchor, resolves IANA starts by first occurrence with a round-trip gap check, converts to independent absolute instants, fits absolute duration against resolved close, and compares half-open intervals. It retains fixture table order and scopes identity by restaurant plus table. An integer ordinal/offset model checks terminal local dates without requiring a Python datetime for UTC year 0 or 10000. Decimal-based independent JSON encoding/comparison avoids binary64 numeric loss.
+
+Six controlled decisions are detected by calibration: closed rather than half-open intervals, second rather than first fold, wall rather than absolute duration, contamination across equal table IDs in different restaurants, binary64 number equality collapse, and wall-clock rather than resolved-instant closing fit. Calibration affects disposable verifier decisions only, never production.
+
+Availability is compared against independently computed slots for several grid/duration pairs, capacities, parties 1..7, nonsorted table IDs, confirmed occupancy, cancellation and closed days. Four specified Berlin/New York transitions test gap rejection/omission, single first-fold slot, start/end offsets, absolute duration, PATCH/batch behavior and closing fit. Party/type/local-format/key/ID/shape boundaries and error precedence are checked separately to avoid ambiguous error ties.
+
+Numeric metamorphic vectors include `1e309` versus `10e308` versus changed `1e310`; tiny `1e-1000` versus equivalent `10e-1001` versus zero; precision beyond binary64; adjacent integers beyond 2^53; booleans versus numbers; ordered arrays; reordered object keys and whitespace. Valid enormous capacity/party/grid values and excessive duration exercise bounded operation without exponent expansion. NaN/Infinity remain malformed JSON. Successful receipt bodies stay original after later amendments/cancellation/import; failed keys remain reusable.
+
+Barrier-coordinated 50-way identical requests yield exactly one 201 and 49 identical 200 receipts with one effect. Fifty distinct competing writes and changed-body same-key requests yield one legal effect and specified conflicts. Fifty overlapping batch/read operations expose only whole states; additional overlapping signup, reset/import, amendments/cancellation/replay and export-versus-swap scenarios audit responses plus final records/occupancy. Every reservation-list observation checks unique IDs/references, half-open confirmed occupancy per restaurant/table and absolute-time descending order.
+
+Moves independently cover final-state swaps, unchanged-item occupancy, unlisted conflicts, complete rollback, 1/8/9-length bounds, duplicate references, mixed restaurants, ownership, input-order non-occupancy precedence, current cutoff before proposed changes, no-op field preservation and input-order responses. Historical create and batch receipts are tested after mutation and transfer, rather than only against their immediate successful state.
+
+## Source inspection evidence
+
+| Reference | Independently inspected property |
+|---|---|
+| SR-1 | Exact production Dockerfile, RUN.md and new Stage 1 Git tree: HTTP-only service, standalone image, four standard-library production modules, bundled tzdata, no runtime external asset/service dependency. |
+| SR-2 | Repository and dependency/source inspection found no reused domain-product implementation, API schema or documentation; submission is Stage 1 only. This is provenance inspection within the available repository, with the limitation stated above. |
+| SR-3 | Account creation stores random 16-byte salt and scrypt hash (n=16384, r=8, p=1), constant-time digest comparison; no plaintext password field retained. Token map allows multiple sessions without expiry logic. Hash/token snapshot continuity is exercised over HTTP. |
+| SR-4 | Cutoff compares exact elapsed minutes to the restaurant cutoff with <=, including equality and past starts; current reservation start is checked before proposed changes. Cancelled state returns before cutoff evaluation for repeated cancellation. HTTP wide and live clock boundaries confirm the observable behavior. |
+| SR-5 | A single state RLock encloses authentication, validation, occupancy, mutation, receipts and snapshot/control operations. Candidate/replacement state validates before publication; export copies/serializes under that boundary. HTTP coordinated races independently check serial outcomes and snapshot records/receipts. |
+
+## Recovery and classification
+
+No product change was requested for verifier or infrastructure failures. After the complete official pass, a Docker Desktop credential-helper error during a public-base-image rebuild was classified INFRASTRUCTURE DEFECT. The pinned revision and official checkpoint were preserved; clean bounded build recovery resumed the independent campaign. The checkpoint validator requires the exact revision, isolated completed pass and unchanged official suite digest.
+
+A terminal-date expected-grid increment raised OverflowError inside the verifier, classified VERIFIER DEFECT. Its expected slots were corrected to bounded minute-integer enumeration; only that affected case reran and passed. An early boundary-only wrapper exit incorrectly required a skipped official result despite all targeted assertions passing; classified VERIFIER DEFECT and corrected. During preparation the oracle's restaurant discriminator coverage gap was fixed and calibrated before relevant product execution. None of these is represented as a production failure or as silently passing evidence.
+
+## Executable identity and reproduction
+
+Run from Linux with the supplied verifier venv active and official checkout present. Existing native clones must be clean and detached at the stated full revisions. The runner can also make its own independent native clone using `--repo`. A complete run without checkpoint arguments executes the official harness and all applicable independent cases; provide the legacy clone to include that extra compatibility case.
 
 ```sh
 source ~/.venvs/dark-factory/bin/activate
-python /mnt/d/dark/band-work/result/evidence/stage-1/run_campaign.py --released --revision FULL_PRODUCTION_SHA
+python /mnt/d/dark/band-work/result/evidence/stage-1/run_campaign.py \
+  --released --revision d41a7627711951a07ce7a1718fac47c6ea5b6dd4 \
+  --materialized /home/nurali/av-stage1-d41a7627-review-847ab33d \
+  --legacy-materialized /home/nurali/av-stage1-b03ce556-review-8810cfb1
 ```
 
-The orchestration invokes the official final acceptance check as:
+| Executable checkpoint | campaign.py SHA-256 | run_campaign.py SHA-256 |
+|---|---|---|
+| Main 27 valid cases | 15ce961f435bf36efc742ac13d40e31d4f6bf7ecec31c49f953f6eef3f924b50 | e1acd97853ca55a3aa3f87fb5c6238e38d45c3a4884c9fab841e9a8d3edd1904 |
+| Terminal recovery | 16b339ab790e21feaa11fc3c42f9dab9aa03979deabcd502e393f6400f6340ca | b358210b4db8d13213d62bbed0e4d7193d92cf66df39487f53d2a2fa5ce0c95c |
+| Control erasure closure | 5eec56a6f674a0f620821c7c8dc4248e0d25eba1167719fec26e15deab22d913 | b358210b4db8d13213d62bbed0e4d7193d92cf66df39487f53d2a2fa5ce0c95c |
+| Final DST closing closure / shipped verifier | 4fe9e7c5670f89132d36164332c24bf8abe12983c997923efec88a0345707176 | b358210b4db8d13213d62bbed0e4d7193d92cf66df39487f53d2a2fa5ce0c95c |
 
-```sh
-python -m harness run --track tablekeeper --mode isolated --repo PINNED_LINUX_CLONE --stage 1 --out EXTERNAL_DIAGNOSTIC_DIRECTORY/official
-```
+Mapped-port executable `runtime_probe.py` SHA-256: `5baf2be13a9ac441e150723383a4ba772656d6dc9a6334de00018f9281cdf7dc`. Main and affected earlier executed verifier copies are retained in their external checkpoint directories. Final campaign changes correct the terminal oracle and add receipt-erasure/DST-closing closures, leaving previously passing case bodies unchanged; the orchestrator adds explicit case selection for checkpoint recovery. Official results were preserved rather than needlessly repeated. Production remained the same exact clean commit throughout.
 
-Campaign completion is not an automatic verdict. Any failure must first be classified as PRODUCT DEFECT, VERIFIER DEFECT, INFRASTRUCTURE DEFECT, or INCONCLUSIVE using the exact revision, a reproducible request, and diagnostics. A failed preflight is not a product defect. Source review and canonical required CRITICAL/HIGH obligations remain gates. If defects are repaired, re-verification requires a newly released full SHA and a new verdict.
+## Independent case outcomes
 
-## Remaining acceptance gates
+Checkpoint abbreviations: MAIN=`av-stage1-d41a76277119-27d82820`, TERM=`av-stage1-d41a76277119-08282f26`, ERASE=`av-stage1-d41a76277119-25c76c65`, DST=`av-stage1-d41a76277119-bd0a160c`.
 
-This exact revision is REJECTED. The full official isolated harness, all prepared independent cases, compatibility checks, 50-request concurrency, clean-environment reproducibility, performance evidence and new pinned source review remain mandatory for a newly released replacement SHA. Canonical obligations remain OPEN except for the specific observations explicitly reported here. The evidence commit is separate from the production revision tested.
+| Case | Result | Checkpoint | Case duration seconds |
+|---|---|---|---|
+| `amendments_atomic_cutoff` | PASS | MAIN | 0.192 |
+| `availability_oracle` | PASS | MAIN | 0.407 |
+| `booking_boundaries_privacy` | PASS | MAIN | 0.131 |
+| `calendar_extremes` | PASS | MAIN | 0.094 |
+| `cancelled_after_cutoff_temporal` | PASS | MAIN | 68.377 |
+| `concurrency_batch_snapshot` | PASS | MAIN | 0.135 |
+| `concurrency_changed_key_50` | PASS | MAIN | 0.135 |
+| `concurrency_distinct_50` | PASS | MAIN | 0.140 |
+| `concurrency_identical_50` | PASS | MAIN | 0.129 |
+| `concurrency_signup_and_users` | PASS | MAIN | 0.210 |
+| `control_receipt_erasure` | PASS | ERASE | 0.345 |
+| `control_replacement_races` | PASS | MAIN | 0.285 |
+| `dst_closing_instant_boundaries` | PASS | DST | 0.417 |
+| `dst_oracle` | PASS | MAIN | 0.191 |
+| `duplicate_table_ids_and_short_seed_password` | PASS | MAIN | 0.168 |
+| `export_atomic_batch` | PASS | MAIN | 0.187 |
+| `ignored_numeric_receipt_boundaries` | PASS | MAIN | 0.237 |
+| `legacy_direct_snapshot_continuity` | PASS | MAIN | 0.504 |
+| `moves_atomic_precedence` | PASS | MAIN | 0.153 |
+| `moves_eight_and_restaurant_scope` | PASS | MAIN | 0.099 |
+| `numeric_equivalence_and_precision` | PASS | MAIN | 0.761 |
+| `offset_ordering_and_amendment` | PASS | MAIN | 0.100 |
+| `patch_and_batch_field_validation` | PASS | MAIN | 0.220 |
+| `patch_batch_cancel_replay_races` | PASS | MAIN | 0.116 |
+| `public_auth_reset` | PASS | MAIN | 0.296 |
+| `receipt_semantics` | PASS | MAIN | 0.137 |
+| `seed_ids_and_batch_cutoff` | PASS | MAIN | 0.101 |
+| `snapshot_import_receipts` | PASS | MAIN | 0.911 |
+| `terminal_zone_instants` | PASS | TERM | 0.249 |
+| `validation` | PASS | MAIN | 0.120 |
+
+## Canonical procedure bindings
+
+These bindings resolve the per-row procedure references to the exact-SHA case table, runtime evidence and source inspections above. They supplement the official checks; they do not imply that the official harness covers every ledger row.
+
+| Procedure | Independent evidence |
+|---|---|
+| <a id="v01"></a>V01 | Pinned Docker build, offline/default/custom-port runtime; published-port probe; SR-1/SR-2; evidence secret scan |
+| <a id="v02"></a>V02 | public_auth_reset; seed_ids_and_batch_cutoff; control_receipt_erasure; control_replacement_races |
+| <a id="v03"></a>V03 | validation; patch_and_batch_field_validation; ignored_numeric_receipt_boundaries; numeric_equivalence_and_precision; response audit |
+| <a id="v04"></a>V04 | public_auth_reset; concurrency_signup_and_users; duplicate_table_ids_and_short_seed_password; snapshot_import_receipts; SR-3 |
+| <a id="v05"></a>V05 | public_auth_reset; booking_boundaries_privacy; moves_atomic_precedence; protected-route token matrix |
+| <a id="v06"></a>V06 | receipt_semantics; numeric_equivalence_and_precision; concurrency_identical_50; concurrency_changed_key_50; control_receipt_erasure |
+| <a id="v07"></a>V07 | public_auth_reset; duplicate_table_ids_and_short_seed_password; moves_eight_and_restaurant_scope |
+| <a id="v08"></a>V08 | availability_oracle; calendar_extremes; numeric_equivalence_and_precision; duplicate_table_ids_and_short_seed_password |
+| <a id="v09"></a>V09 | dst_oracle; dst_closing_instant_boundaries; terminal_zone_instants; patch_and_batch_field_validation |
+| <a id="v10"></a>V10 | booking_boundaries_privacy; seed_ids_and_batch_cutoff; availability_oracle; calendar_extremes; numeric_equivalence_and_precision |
+| <a id="v11"></a>V11 | offset_ordering_and_amendment; seed_ids_and_batch_cutoff; every reservation-list audit |
+| <a id="v12"></a>V12 | amendments_atomic_cutoff; cancelled_after_cutoff_temporal; seed_ids_and_batch_cutoff; SR-4 |
+| <a id="v13"></a>V13 | amendments_atomic_cutoff; patch_and_batch_field_validation; patch_batch_cancel_replay_races; SR-4 |
+| <a id="v14"></a>V14 | moves_atomic_precedence; moves_eight_and_restaurant_scope; seed_ids_and_batch_cutoff; patch_and_batch_field_validation; concurrency_batch_snapshot |
+| <a id="v15"></a>V15 | receipt_semantics; moves_atomic_precedence; numeric_equivalence_and_precision; snapshot_import_receipts; legacy_direct_snapshot_continuity |
+| <a id="v16"></a>V16 | concurrency_identical_50; concurrency_distinct_50; concurrency_changed_key_50; concurrency_batch_snapshot; concurrency_signup_and_users; final-state audit |
+| <a id="v17"></a>V17 | export_atomic_batch; snapshot_import_receipts; control_replacement_races; SR-5 |
+| <a id="v18"></a>V18 | snapshot_import_receipts; legacy_direct_snapshot_continuity; ignored_numeric_receipt_boundaries; duplicate_table_ids_and_short_seed_password; control_receipt_erasure |
+| <a id="v19"></a>V19 | snapshot_import_receipts; invalid-import state/login/receipt rollback assertions; repeated import |
+| <a id="v20"></a>V20 | control_replacement_races; export_atomic_batch; patch_batch_cancel_replay_races; control_receipt_erasure; SR-5 |
+
+## Atomic obligation closure
+
+All rows below refer to the supplied canonical requirement text at the ledger commit identified above; the ledger remains the sole requirement authority. Each row is closed for this revision by its linked independent procedure evidence and applicable official/source evidence. CLOSED means verified to the stated evidence limits, not exhaustive proof over unbounded inputs.
+
+| Requirement ID | Risk | Result | Evidence bindings |
+|---|---|---|---|
+| TK1-SC-01 | M | CLOSED | [V01](#v01) |
+| TK1-SC-02 | H | CLOSED: source/provenance inspection SR-2 | [V01](#v01) |
+| TK1-SC-03 | H | CLOSED: source/provenance inspection SR-2 | [V01](#v01) |
+| TK1-SC-04 | H | CLOSED | [V01](#v01) |
+| TK1-RUN-01 | H | CLOSED | [V01](#v01) |
+| TK1-RUN-02 | M | CLOSED | [V01](#v01) |
+| TK1-RUN-03 | H | CLOSED | [V01](#v01) |
+| TK1-RUN-04 | H | CLOSED | [V01](#v01) |
+| TK1-RUN-05 | H | CLOSED | [V01](#v01) |
+| TK1-RUN-06 | H | CLOSED | [V01](#v01), [V16](#v16) |
+| TK1-RUN-07 | H | CLOSED | [V16](#v16) |
+| TK1-RUN-08 | H | CLOSED | [V02](#v02), [V18](#v18) |
+| TK1-RUN-09 | H | CLOSED | [V01](#v01) |
+| TK1-RUN-10 | M | CLOSED | [V01](#v01) |
+| TK1-RUN-11 | H | CLOSED | [V01](#v01) |
+| TK1-RUN-12 | H | CLOSED | [V01](#v01) |
+| TK1-RUN-13 | H | CLOSED | [V01](#v01), [V16](#v16) |
+| TK1-HTTP-01 | M | CLOSED | [V03](#v03) |
+| TK1-HTTP-02 | H | CLOSED | [V03](#v03), [V09](#v09) |
+| TK1-HTTP-03 | H | CLOSED | [V03](#v03), [V06](#v06) |
+| TK1-HTTP-04 | M | CLOSED | [V03](#v03) |
+| TK1-HTTP-05 | H | CLOSED | [V03](#v03), [V02](#v02) |
+| TK1-FIX-01 | H | CLOSED | [V02](#v02) |
+| TK1-FIX-02 | C | CLOSED | [V02](#v02), [V20](#v20) |
+| TK1-FIX-03 | M | CLOSED | [V02](#v02) |
+| TK1-FIX-04 | C | CLOSED | [V02](#v02), [V20](#v20) |
+| TK1-FIX-05 | H | CLOSED | [V02](#v02) |
+| TK1-FIX-06 | M | CLOSED | [V02](#v02) |
+| TK1-FIX-07 | H | CLOSED | [V02](#v02), [V09](#v09) |
+| TK1-FIX-08 | H | CLOSED | [V08](#v08) |
+| TK1-FIX-09 | H | CLOSED | [V08](#v08), [V10](#v10) |
+| TK1-FIX-10 | H | CLOSED | [V08](#v08), [V10](#v10) |
+| TK1-FIX-11 | H | CLOSED | [V12](#v12), [V13](#v13) |
+| TK1-FIX-12 | H | CLOSED | [V08](#v08), [V10](#v10) |
+| TK1-FIX-13 | H | CLOSED | [V02](#v02), [V04](#v04) |
+| TK1-FIX-14 | H | CLOSED | [V02](#v02), [V11](#v11) |
+| TK1-FIX-15 | C | CLOSED | [V02](#v02), [V08](#v08) |
+| TK1-FIX-16 | H | CLOSED | [V10](#v10) |
+| TK1-FIX-17 | H | CLOSED | [V12](#v12), [V13](#v13) |
+| TK1-ERR-01 | H | CLOSED | [V03](#v03) |
+| TK1-ERR-02 | H | CLOSED | [V03](#v03) |
+| TK1-ERR-03 | H | CLOSED | [V03](#v03), [V14](#v14) |
+| TK1-ERR-04 | H | CLOSED | [V03](#v03) |
+| TK1-ERR-05 | H | CLOSED | [V03](#v03) |
+| TK1-ERR-06 | H | CLOSED | [V03](#v03), [V10](#v10), [V13](#v13), [V14](#v14) |
+| TK1-ERR-07 | H | CLOSED | [V03](#v03), [V09](#v09) |
+| TK1-ERR-08 | H | CLOSED | [V03](#v03), [V08](#v08) |
+| TK1-ERR-09 | H | CLOSED | [V06](#v06) |
+| TK1-ERR-10 | H | CLOSED | [V05](#v05) |
+| TK1-ERR-11 | H | CLOSED: no applicable 403 route; required 404 verified | [V05](#v05) |
+| TK1-ERR-12 | H | CLOSED | [V05](#v05), [V10](#v10), [V14](#v14) |
+| TK1-ERR-13 | C | CLOSED | [V03](#v03), [V16](#v16), [V20](#v20) |
+| TK1-AUTH-01 | H | CLOSED | [V04](#v04) |
+| TK1-AUTH-02 | H | CLOSED | [V04](#v04), [V16](#v16) |
+| TK1-AUTH-03 | H | CLOSED | [V04](#v04) |
+| TK1-AUTH-04 | M | CLOSED | [V04](#v04) |
+| TK1-AUTH-05 | H | CLOSED | [V04](#v04) |
+| TK1-AUTH-06 | H | CLOSED | [V04](#v04) |
+| TK1-AUTH-07 | H | CLOSED | [V04](#v04) |
+| TK1-AUTH-08 | H | CLOSED | [V04](#v04), [V18](#v18) |
+| TK1-AUTH-09 | H | CLOSED | [V04](#v04), [V16](#v16) |
+| TK1-AUTH-10 | H | CLOSED | [V05](#v05) |
+| TK1-AUTH-11 | C | CLOSED | [V05](#v05) |
+| TK1-AUTH-12 | C | CLOSED | [V04](#v04), [V18](#v18) |
+| TK1-OCC-01 | C | CLOSED | [V10](#v10), [V16](#v16), [V20](#v20) |
+| TK1-OCC-02 | C | CLOSED | [V10](#v10), [V09](#v09) |
+| TK1-OCC-03 | C | CLOSED | [V16](#v16) |
+| TK1-OCC-04 | C | CLOSED | [V06](#v06), [V16](#v16) |
+| TK1-OCC-05 | C | CLOSED | [V10](#v10), [V13](#v13), [V14](#v14), [V20](#v20) |
+| TK1-IDEM-01 | H | CLOSED | [V06](#v06) |
+| TK1-IDEM-02 | H | CLOSED | [V06](#v06) |
+| TK1-IDEM-03 | C | CLOSED | [V06](#v06), [V16](#v16) |
+| TK1-IDEM-04 | C | CLOSED | [V06](#v06), [V15](#v15) |
+| TK1-IDEM-05 | C | CLOSED | [V06](#v06) |
+| TK1-IDEM-06 | C | CLOSED | [V06](#v06), [V15](#v15) |
+| TK1-IDEM-07 | H | CLOSED | [V06](#v06) |
+| TK1-IDEM-08 | C | CLOSED | [V06](#v06), [V15](#v15), [V18](#v18) |
+| TK1-IDEM-09 | C | CLOSED | [V16](#v16) |
+| TK1-IDEM-10 | C | CLOSED | [V06](#v06) |
+| TK1-IDEM-11 | H | CLOSED | [V06](#v06) |
+| TK1-IDEM-12 | C | CLOSED | [V06](#v06), [V14](#v14), [V18](#v18) |
+| TK1-IDEM-13 | C | CLOSED | [V15](#v15), [V18](#v18) |
+| TK1-IDEM-14 | C | CLOSED | [V15](#v15), [V20](#v20) |
+| TK1-BROWSE-01 | M | CLOSED | [V07](#v07) |
+| TK1-BROWSE-02 | H | CLOSED | [V07](#v07) |
+| TK1-BROWSE-03 | M | CLOSED | [V07](#v07) |
+| TK1-AV-01 | H | CLOSED | [V08](#v08) |
+| TK1-AV-02 | H | CLOSED | [V08](#v08), [V09](#v09) |
+| TK1-AV-03 | M | CLOSED | [V08](#v08) |
+| TK1-AV-04 | H | CLOSED | [V08](#v08), [V09](#v09) |
+| TK1-AV-05 | H | CLOSED | [V08](#v08), [V09](#v09) |
+| TK1-AV-06 | H | CLOSED | [V08](#v08) |
+| TK1-AV-07 | H | CLOSED | [V08](#v08) |
+| TK1-AV-08 | C | CLOSED | [V08](#v08), [V16](#v16) |
+| TK1-AV-09 | H | CLOSED | [V08](#v08), [V18](#v18) |
+| TK1-AV-10 | H | CLOSED | [V08](#v08) |
+| TK1-AV-11 | H | CLOSED | [V08](#v08) |
+| TK1-AV-12 | H | CLOSED | [V08](#v08), [V09](#v09) |
+| TK1-CREATE-01 | H | CLOSED | [V10](#v10) |
+| TK1-CREATE-02 | H | CLOSED | [V09](#v09), [V10](#v10) |
+| TK1-CREATE-03 | H | CLOSED | [V10](#v10) |
+| TK1-CREATE-04 | H | CLOSED | [V10](#v10) |
+| TK1-CREATE-05 | C | CLOSED | [V10](#v10), [V16](#v16) |
+| TK1-CREATE-06 | C | CLOSED | [V13](#v13), [V14](#v14), [V18](#v18) |
+| TK1-CREATE-07 | C | CLOSED | [V10](#v10), [V16](#v16) |
+| TK1-CREATE-08 | H | CLOSED | [V10](#v10) |
+| TK1-CREATE-09 | H | CLOSED | [V09](#v09), [V10](#v10) |
+| TK1-CREATE-10 | H | CLOSED | [V10](#v10) |
+| TK1-CREATE-11 | H | CLOSED | [V10](#v10) |
+| TK1-CREATE-12 | H | CLOSED | [V10](#v10) |
+| TK1-CREATE-13 | H | CLOSED | [V10](#v10) |
+| TK1-GET-01 | C | CLOSED | [V05](#v05), [V11](#v11) |
+| TK1-GET-02 | H | CLOSED | [V11](#v11), [V13](#v13) |
+| TK1-GET-03 | M | CLOSED | [V11](#v11) |
+| TK1-GET-04 | C | CLOSED | [V05](#v05), [V11](#v11) |
+| TK1-GET-05 | H | CLOSED | [V11](#v11), [V12](#v12) |
+| TK1-CANCEL-01 | H | CLOSED | [V12](#v12) |
+| TK1-CANCEL-02 | C | CLOSED | [V12](#v12), [V16](#v16) |
+| TK1-CANCEL-03 | H | CLOSED | [V12](#v12) |
+| TK1-CANCEL-04 | H | CLOSED | [V12](#v12) |
+| TK1-CANCEL-05 | C | CLOSED | [V05](#v05), [V12](#v12) |
+| TK1-PATCH-01 | H | CLOSED | [V13](#v13) |
+| TK1-PATCH-02 | H | CLOSED | [V13](#v13) |
+| TK1-PATCH-03 | H | CLOSED | [V13](#v13) |
+| TK1-PATCH-04 | H | CLOSED | [V13](#v13) |
+| TK1-PATCH-05 | H | CLOSED | [V13](#v13) |
+| TK1-PATCH-06 | C | CLOSED | [V13](#v13), [V16](#v16) |
+| TK1-PATCH-07 | C | CLOSED | [V13](#v13), [V20](#v20) |
+| TK1-PATCH-08 | C | CLOSED | [V13](#v13), [V18](#v18) |
+| TK1-TIME-01 | H | CLOSED | [V09](#v09) |
+| TK1-TIME-02 | H | CLOSED | [V09](#v09) |
+| TK1-TIME-03 | H | CLOSED | [V09](#v09) |
+| TK1-TIME-04 | C | CLOSED | [V09](#v09) |
+| TK1-TIME-05 | C | CLOSED | [V09](#v09) |
+| TK1-TIME-06 | H | CLOSED | [V09](#v09) |
+| TK1-TIME-07 | H | CLOSED | [V09](#v09) |
+| TK1-TIME-08 | H | CLOSED | [V09](#v09) |
+| TK1-TIME-09 | H | CLOSED | [V09](#v09) |
+| TK1-TIME-10 | H | CLOSED | [V09](#v09) |
+| TK1-XFER-01 | H | CLOSED | [V17](#v17) |
+| TK1-XFER-02 | C | CLOSED | [V17](#v17), [V20](#v20) |
+| TK1-XFER-03 | C | CLOSED | [V17](#v17), [V18](#v18) |
+| TK1-XFER-04 | C | CLOSED | [V18](#v18) |
+| TK1-XFER-05 | C | CLOSED | [V18](#v18) |
+| TK1-XFER-06 | C | CLOSED | [V18](#v18), [V20](#v20) |
+| TK1-XFER-07 | C | CLOSED | [V18](#v18) |
+| TK1-XFER-08 | C | CLOSED | [V18](#v18), [V19](#v19) |
+| TK1-XFER-09 | H | CLOSED | [V19](#v19) |
+| TK1-XFER-10 | H | CLOSED | [V19](#v19) |
+| TK1-XFER-11 | C | CLOSED | [V19](#v19), [V20](#v20) |
+| TK1-XFER-12 | C | CLOSED | [V18](#v18) |
+| TK1-XFER-13 | C | CLOSED | [V18](#v18) |
+| TK1-XFER-14 | H | CLOSED | [V18](#v18) |
+| TK1-XFER-15 | C | CLOSED | [V18](#v18) |
+| TK1-XFER-16 | C | CLOSED | [V18](#v18) |
+| TK1-XFER-17 | C | CLOSED | [V18](#v18) |
+| TK1-XFER-18 | C | CLOSED | [V18](#v18) |
+| TK1-XFER-19 | C | CLOSED | [V18](#v18) |
+| TK1-XFER-20 | C | CLOSED | [V02](#v02), [V18](#v18) |
+| TK1-XFER-21 | C | CLOSED | [V01](#v01), [V18](#v18) |
+| TK1-XFER-22 | C | CLOSED | [V18](#v18) |
+| TK1-XFER-23 | C | CLOSED | [V18](#v18) |
+| TK1-MOVE-01 | C | CLOSED | [V05](#v05), [V14](#v14) |
+| TK1-MOVE-02 | C | CLOSED | [V06](#v06), [V15](#v15) |
+| TK1-MOVE-03 | H | CLOSED | [V14](#v14) |
+| TK1-MOVE-04 | C | CLOSED | [V05](#v05), [V14](#v14) |
+| TK1-MOVE-05 | H | CLOSED | [V14](#v14) |
+| TK1-MOVE-06 | H | CLOSED | [V14](#v14) |
+| TK1-MOVE-07 | H | CLOSED | [V14](#v14), [V15](#v15) |
+| TK1-MOVE-08 | C | CLOSED | [V14](#v14), [V18](#v18) |
+| TK1-MOVE-09 | H | CLOSED | [V14](#v14) |
+| TK1-MOVE-10 | H | CLOSED | [V14](#v14) |
+| TK1-MOVE-11 | H | CLOSED | [V14](#v14) |
+| TK1-MOVE-12 | C | CLOSED | [V14](#v14) |
+| TK1-MOVE-13 | C | CLOSED | [V14](#v14) |
+| TK1-MOVE-14 | C | CLOSED | [V14](#v14) |
+| TK1-MOVE-15 | C | CLOSED | [V14](#v14), [V16](#v16) |
+| TK1-MOVE-16 | C | CLOSED | [V14](#v14) |
+| TK1-MOVE-17 | C | CLOSED | [V14](#v14), [V16](#v16), [V20](#v20) |
+| TK1-MOVE-18 | H | CLOSED | [V14](#v14), [V15](#v15) |
+| TK1-MOVE-19 | C | CLOSED | [V15](#v15), [V18](#v18) |
+| TK1-MOVE-20 | C | CLOSED | [V14](#v14), [V15](#v15), [V18](#v18) |
+| TK1-MOVE-21 | C | CLOSED | [V18](#v18) |
+| TK1-MOVE-22 | H | CLOSED | [V14](#v14), [V15](#v15) |
+| TK1-MOVE-23 | H | CLOSED | [V14](#v14), [V15](#v15) |
+| TK1-MOVE-24 | H | CLOSED | [V14](#v14) |
+| TK1-MOVE-25 | H | CLOSED | [V14](#v14) |
+
+Acceptance evidence is frozen after this exact-revision verdict and its separate sanitized evidence commit. No additional cosmetic reconciliation or retesting is required.

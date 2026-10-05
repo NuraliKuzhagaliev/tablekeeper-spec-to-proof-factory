@@ -41,6 +41,9 @@ def main():
     p.add_argument("--diagnostics", default="/mnt/d/dark/band-work/checks")
     p.add_argument("--boundary-only", action="store_true", help="released targeted regression gate; skip official/full campaign")
     p.add_argument("--materialized", help="existing clean native pinned clone; never shared mutable checkout")
+    p.add_argument("--legacy-materialized", help="optional native old-SHA source for direct-object transfer continuity")
+    p.add_argument("--resume-official", help="preserve completed exact-SHA isolated official checkpoint directory")
+    p.add_argument("--cases", nargs="+", help="resume only explicitly affected independent cases")
     args = p.parse_args()
     if not args.released or not re.fullmatch("[0-9a-f]{40}", args.revision):
         p.error("Conductor release and full 40-character SHA are mandatory")
@@ -58,12 +61,15 @@ def main():
     names = [run_id + "-source", run_id + "-destination"]
     if not args.boundary_only:
         names.append(run_id + "-third")
+        if args.legacy_materialized:
+            names.append(run_id + "-legacy")
     metadata = {"production_revision": args.revision, "run_id": run_id,
                 "classification": "INCONCLUSIVE", "diagnostics": str(out),
                 "immutable_materialization": str(repo), "resource_limits": {"cpu": 2, "memory": "2g"},
                 "budgets": {"readiness_seconds": 60, "request_seconds": 5, "control_seconds": 10}}
     started = []
-    created_network = built = False
+    created_network = built = legacy_built = False
+    legacy_image = run_id + ":legacy"
     try:
         metadata["docker_version"] = command(["docker", "version", "--format", "{{.Server.Version}}"])
         check_sha = command(["git", "-C", args.repo, "rev-parse", args.revision + "^{commit}"])
@@ -92,27 +98,60 @@ def main():
         metadata["orchestrator_sha256"] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
         command([sys.executable, str(campaign), "calibrate"], out / "calibration.log")
         # Official isolated harness builds the exact clean revision independently.
-        if args.boundary_only:
+        if args.resume_official:
+            previous = Path(args.resume_official).resolve()
+            checkpoint = json.loads((previous / "report.json").read_text())
+            counts = checkpoint.get("checks", {}).get("1", {})
+            digest = command([sys.executable, "-c", "from harness.provenance import suite_digest; print(suite_digest('tablekeeper', ['1']))"], cwd=OFFICIAL)
+            if (checkpoint.get("revision") != args.revision or checkpoint.get("mode") != "isolated"
+                    or checkpoint.get("state") != "completed" or checkpoint.get("stages", {}).get("1") != "pass"
+                    or checkpoint.get("suite_digest") != digest or not counts.get("collected")
+                    or counts.get("passed") != counts.get("collected") or counts.get("failed") or counts.get("errors")):
+                raise RuntimeError("official checkpoint is incomplete, stale, or from another exact revision")
+            metadata["official_exit_code"] = 0
+            metadata["official_checkpoint"] = str(previous)
+            metadata["official_suite_digest"] = digest
+        elif args.boundary_only:
             command(["docker", "image", "inspect", "df-harness-runner", "--format", "{{.Id}}"])
-            metadata["official_checks"] = "NOT RUN: Conductor targeted-rejection gate; full check deferred to replacement SHA"
+            metadata["official_checks"] = "NOT RUN: targeted boundary gate; full campaign is a separate required phase"
         else:
             harness = [sys.executable, "-m", "harness", "run", "--track", "tablekeeper", "--mode", "isolated",
                        "--repo", str(repo), "--stage", "1", "--out", str(out / "official")]
             with (out / "official-console.log").open("w") as stream:
                 official = subprocess.run(harness, cwd=OFFICIAL, stdout=stream, stderr=subprocess.STDOUT, timeout=1800)
             metadata["official_exit_code"] = official.returncode
-        command(["docker", "build", "-t", image, str(repo / "stage-1")], out / "independent-build.log", timeout=1800)
+        for attempt in range(3):
+            try:
+                command(["docker", "build", "-t", image, str(repo / "stage-1")], out / "independent-build.log", timeout=1800)
+                break
+            except RuntimeError:
+                text = (out / "independent-build.log").read_text()
+                if "error getting credentials" not in text or attempt == 2:
+                    raise
+                metadata["docker_credential_helper_retries"] = attempt + 1
+                time.sleep(1)
         built = True
+        if args.legacy_materialized and not args.boundary_only:
+            legacy_repo = Path(args.legacy_materialized).resolve()
+            if str(legacy_repo).startswith("/mnt/"):
+                raise RuntimeError("legacy clone must use native Linux filesystem")
+            metadata["legacy_source_revision"] = command(["git", "-C", str(legacy_repo), "rev-parse", "HEAD"])
+            if command(["git", "-C", str(legacy_repo), "status", "--porcelain"]):
+                raise RuntimeError("legacy source clone is not clean")
+            command(["docker", "build", "-t", legacy_image, str(legacy_repo / "stage-1")], out / "legacy-build.log", timeout=1800)
+            legacy_built = True
         command(["docker", "network", "create", "--internal", "--label", LABEL, network])
         created_network = True
         boot_times = {}
         ports = [8765, 8766] + ([] if args.boundary_only else [8080])
+        if legacy_built:
+            ports.append(8899)
         for i, name in enumerate(names):
             port = ports[i]
             boot_times[name] = time.monotonic()
-            port_args = ["-e", "PORT=" + str(port)] if i < 2 else []
+            port_args = ["-e", "PORT=" + str(port)] if i != 2 else []
             command(["docker", "run", "-d", "--name", name, "--label", LABEL, "--network", network,
-                     "--cpus", "2", "--memory", "2g", *port_args, image])
+                     "--cpus", "2", "--memory", "2g", *port_args, legacy_image if i == 3 else image])
             started.append(name)
         metadata["container_ports"] = ports
         metadata["third_container_port_env_omitted"] = not args.boundary_only
@@ -121,7 +160,7 @@ def main():
         for i, name in enumerate(names):
             url = "http://" + name + ":" + str(ports[i])
             probe_code = ("import urllib.request,json; r=urllib.request.urlopen('" + url
-                          + "/health',timeout=2); assert r.status==200 and json.load(r)=={'status':'ok'}")
+                          + "/health',timeout=5); assert r.status==200 and json.load(r)=={'status':'ok'}")
             deadline = boot_times[name] + 60
             healthy = False
             while time.monotonic() < deadline:
@@ -143,14 +182,19 @@ def main():
                   "python", "/campaign.py", "http", "--source", "http://" + names[0] + ":8765",
                   "--destination", "http://" + names[1] + ":8766",
                   "--control", "/out", "--out", "/out/independent-summary.json"]
-        if args.boundary_only:
+        if args.cases:
+            runner += ["--cases", *args.cases]
+        elif args.boundary_only:
             runner += ["--cases", "ignored_numeric_receipt_boundaries", "calendar_extremes"]
         else:
             runner += ["--third", "http://" + names[2] + ":8080"]
+            if legacy_built:
+                runner += ["--legacy", "http://" + names[3] + ":8899"]
         with (out / "independent-console.log").open("w") as stream:
             independent = subprocess.Popen(runner, stdout=stream, stderr=subprocess.STDOUT)
             deadline = time.monotonic() + 900
             source_paused = False
+            legacy_paused = False
             while independent.poll() is None:
                 if (out / "pause-source").exists() and not source_paused:
                     command(["docker", "pause", names[0]])
@@ -159,6 +203,13 @@ def main():
                         raise RuntimeError("source-unavailable compatibility gate failed")
                     metadata["source_unavailable_during_transfer"] = True
                     (out / "source-unavailable").write_text("paused\n")
+                if legacy_built and (out / "pause-legacy").exists() and not legacy_paused:
+                    command(["docker", "pause", names[3]])
+                    legacy_paused = command(["docker", "inspect", "-f", "{{.State.Paused}}", names[3]]) == "true"
+                    if not legacy_paused:
+                        raise RuntimeError("legacy source-unavailable compatibility gate failed")
+                    metadata["legacy_unavailable_during_transfer"] = True
+                    (out / "legacy-unavailable").write_text("paused\n")
                 if time.monotonic() >= deadline:
                     subprocess.run(["docker", "rm", "-f", run_id + "-runner"], capture_output=True)
                     independent.wait(timeout=15)
@@ -181,10 +232,12 @@ def main():
             subprocess.run(["docker", "network", "rm", network], capture_output=True)
         if built:
             subprocess.run(["docker", "rmi", image], capture_output=True)
+        if legacy_built:
+            subprocess.run(["docker", "rmi", legacy_image], capture_output=True)
         (out / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
         print(json.dumps(metadata, indent=2))
         # Pinned native materialization retained for review/recovery. Never delete other verifier resources.
-    return 0 if metadata.get("independent_exit_code") == 0 and metadata.get("official_exit_code") == 0 else 1
+    return 0 if metadata.get("independent_exit_code") == 0 and (args.boundary_only or metadata.get("official_exit_code") == 0) else 1
 
 
 if __name__ == "__main__":

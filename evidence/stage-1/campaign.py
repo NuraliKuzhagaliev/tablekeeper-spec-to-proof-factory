@@ -74,6 +74,37 @@ def overlaps(a, b, c, d):
     return a < d and c < b
 
 
+def instant_seconds(value):
+    """Independent unbounded integer instant; handles UTC year 0/10000 crossings."""
+    parsed = dt.datetime.fromisoformat(value)
+    offset = parsed.utcoffset()
+    check(offset is not None, "timestamp lacks explicit offset")
+    return (parsed.toordinal() * 86400 + parsed.hour * 3600 + parsed.minute * 60 + parsed.second
+            - int(offset.total_seconds()))
+
+
+def audit(rows):
+    check(isinstance(rows, list), "reservation list has wrong shape")
+    required = {"reservation_id", "reference", "restaurant_id", "table_id", "starts_at", "ends_at", "status"}
+    check(all(isinstance(r, dict) and required <= r.keys() for r in rows), "reservation list missing fields")
+    check(len({r["reference"] for r in rows}) == len(rows), "duplicate reservation reference in state")
+    check(len({r["reservation_id"] for r in rows}) == len(rows), "duplicate reservation identity in state")
+    try:
+        starts = [instant_seconds(r["starts_at"]) for r in rows]
+        ends = [instant_seconds(r["ends_at"]) for r in rows]
+    except ValueError:
+        raise CheckFailure("invalid reservation timestamp")
+    check(starts == sorted(starts, reverse=True), "list is not descending by absolute start instant")
+    for i, r in enumerate(rows):
+        check(r["status"] in ("confirmed", "cancelled"), "invalid reservation status")
+        check(ends[i] > starts[i], "non-positive occupancy interval")
+        for j in range(i):
+            other = rows[j]
+            if (r["status"] == other["status"] == "confirmed"
+                    and (r["restaurant_id"], r["table_id"]) == (other["restaurant_id"], other["table_id"])):
+                check(not overlaps(starts[i], ends[i], starts[j], ends[j]), "confirmed state has overlapping occupancy")
+
+
 def oracle(fx, date, party, occupied=()):
     """Enumerate wall grid; independently compare UTC half-open occupancy."""
     r = fx["restaurants"][0]
@@ -98,7 +129,7 @@ def oracle(fx, date, party, occupied=()):
                 for table in r["tables"]:
                     if table["capacity"] < party:
                         continue
-                    taken = any(x["table_id"] == table["id"] and x["status"] == "confirmed"
+                    taken = any(x["restaurant_id"] == r["id"] and x["table_id"] == table["id"] and x["status"] == "confirmed"
                                 and overlaps(start_utc, end_utc,
                                              dt.datetime.fromisoformat(x["starts_at"]).astimezone(UTC),
                                              dt.datetime.fromisoformat(x["ends_at"]).astimezone(UTC))
@@ -176,9 +207,9 @@ class API:
     def reset(self, fx):
         self.expect(204, "POST", "/_test/reset", fx)
 
-    def login(self, user="ada"):
+    def login(self, user="ada", password=None):
         result = self.expect(200, "POST", "/auth/login",
-                             {"email": user + "@verifier.invalid", "password": PASSWORD})
+                             {"email": user + "@verifier.invalid", "password": PASSWORD if password is None else password})
         check(isinstance(result.get("token"), str) and result["token"], "login token absent")
         return result["token"]
 
@@ -194,7 +225,9 @@ class API:
         return result
 
     def reservations(self, token):
-        return self.expect(200, "GET", "/reservations", token=token)["reservations"]
+        rows = self.expect(200, "GET", "/reservations", token=token)["reservations"]
+        audit(rows)
+        return rows
 
     def availability(self, day=DAY, party=2):
         query = urllib.parse.urlencode({"restaurant_id": "r", "date": day, "party_size": party})
@@ -202,12 +235,13 @@ class API:
 
 
 class Campaign:
-    def __init__(self, source, destination, control=None, third=None):
+    def __init__(self, source, destination, control=None, third=None, legacy=None):
         self.api = API(source)
         self.dest = API(destination)
         self.results = []
         self.control = Path(control) if control else None
         self.third = API(third) if third else None
+        self.legacy = API(legacy) if legacy else None
 
     def fresh(self, fx=None):
         self.fx = fx or fixture()
@@ -278,6 +312,117 @@ class Campaign:
             check(a.availability(day) == expected, "calendar boundary availability: " + day)
             reservation = a.book(token, body(day=day), "calendar-" + day)
             check(reservation["starts_at_local"] == day + "T18:00", "calendar boundary booking changed date")
+
+    def numeric_equivalence_and_precision(self):
+        vectors = [("1e309", "10e308", "1e310"),
+                   ("1e-1000", "10e-1001", "0"),
+                   ("1.0000000000000000001", "1.00000000000000000010", "1.0"),
+                   ("9007199254740993.0", "90071992547409930e-1", "9007199254740992.0")]
+        for i, (first, equivalent, different) in enumerate(vectors):
+            a, token = self.fresh()
+            def raw(number):
+                return encode_json(body())[:-1].encode() + b',"ignored":{"numeric":' + number.encode() + b'}}'
+            made = a.expect(201, "POST", "/reservations", token=token, key="exact", raw=raw(first))
+            check(a.expect(200, "POST", "/reservations", token=token, key="exact", raw=raw(equivalent)) == made,
+                  "equivalent numeric encoding not a replay")
+            a.expect(409, "POST", "/reservations", token=token, key="exact", raw=raw(different), code="idempotency_key_reuse")
+            a.expect(200, "POST", "/reservations/" + made["reference"] + "/cancel", token=token)
+            snapshot = a.expect(200, "GET", "/_test/export")
+            self.dest.expect(204, "POST", "/_test/import", snapshot)
+            check(self.dest.expect(200, "POST", "/reservations", token=token, key="exact", raw=raw(equivalent)) == made,
+                  "import rounded numeric receipt or changed historical response")
+            self.dest.expect(409, "POST", "/reservations", token=token, key="exact", raw=raw(different), code="idempotency_key_reuse")
+            check(self.dest.reservations(token)[0]["status"] == "cancelled", "numeric replay resurrected reservation")
+        a, token = self.fresh()
+        first = a.book(token, {**body(), "party_size": Decimal("2.0"), "ignored": [False, 0]}, "integer-value")
+        check(a.book(token, {**body(), "party_size": 2, "ignored": [False, 0]}, "integer-value", 200) == first,
+              "integer-valued numeric representation not equivalent")
+        a.book(token, {**body(), "party_size": 2, "ignored": [0, False]}, "integer-value", 409, "idempotency_key_reuse")
+        fx = fixture()
+        fx["restaurants"][0]["tables"][0]["capacity"] = Decimal("1e400")
+        a, token = self.fresh(fx)
+        giant = a.book(token, body(party=Decimal("1e400")), "giant-party")
+        check(giant["party_size"] == Decimal("1e400"), "giant valid party value changed")
+        query_party = 10 ** 400
+        check(a.availability(party=query_party) == oracle(fx, DAY, query_party, [giant]), "giant capacity/party oracle")
+        a.book(token, body("z", at="19:30", party=query_party + 1), "over-capacity", 422, "party_exceeds_capacity")
+        a.book(token, body("m", party=Decimal("1e-1000")), "fractional-tiny", 422, "validation_failed")
+        fx = fixture(slot=Decimal("1e1000"))
+        a, token = self.fresh(fx)
+        check(len(a.availability()) == 1, "giant positive slot should yield exactly opening slot")
+        a.book(token, body(), "giant-grid")
+        a.book(token, body("m", at="18:30"), "off-giant-grid", 422, "not_on_slot_grid")
+        fx = fixture(duration=Decimal("1e1000"))
+        a, token = self.fresh(fx)
+        check(a.availability() == [], "giant duration cannot fit opening window")
+        a.book(token, body(), "duration-outside", 422, "outside_opening_hours")
+
+    def terminal_zone_instants(self):
+        for zone, day, opens, closes, duration, at in (
+                ("America/New_York", "9999-12-31", "21:00", "23:59", 60, "22:00"),
+                ("Etc/GMT-8", "0001-01-01", "00:00", "04:00", 90, "00:00")):
+            fx = fixture(zone, opens, closes, duration=duration)
+            a, token = self.fresh(fx)
+            start = dt.datetime.fromisoformat(day + "T" + opens)
+            close = dt.datetime.fromisoformat(day + "T" + closes)
+            expected = []
+            first_minute = start.hour * 60 + start.minute
+            last_minute = close.hour * 60 + close.minute - duration
+            midnight = dt.datetime.fromisoformat(day + "T00:00")
+            for minute in range(first_minute, last_minute + 1, 30):
+                candidate = midnight + dt.timedelta(minutes=minute)
+                expected.append({"starts_at_local": candidate.isoformat(timespec="minutes"),
+                                 "starts_at": candidate.replace(tzinfo=ZoneInfo(zone)).isoformat(),
+                                 "available_table_ids": ["z", "a", "m"]})
+            check(a.availability(day) == expected, "terminal zone availability or offset mismatch")
+            made = a.book(token, body(at=at, day=day), "terminal-zone")
+            check(instant_seconds(made["ends_at"]) - instant_seconds(made["starts_at"]) == duration * 60,
+                  "terminal zone elapsed duration incorrect")
+            a.book(token, body(at="22:30" if zone == "America/New_York" else "00:30", day=day),
+                   "terminal-overlap", 409, "table_unavailable")
+            rows = a.reservations(token)
+            snapshot = a.expect(200, "GET", "/_test/export")
+            self.dest.expect(204, "POST", "/_test/import", snapshot)
+            check(self.dest.reservations(token) == rows, "terminal zone import changed reservation")
+            check(self.dest.book(token, body(at=at, day=day), "terminal-zone", 200) == made,
+                  "terminal zone receipt lost after import")
+
+    def offset_ordering_and_amendment(self):
+        fx = fixture()
+        other = copy.deepcopy(fx["restaurants"][0])
+        other.update(id="ny", timezone="America/New_York")
+        fx["restaurants"].append(other)
+        a, token = self.fresh(fx)
+        items = [a.book(token, body(at="18:30", restaurant="ny"), "ny"),
+                 a.book(token, body("m", at="21:00"), "berlin-late"),
+                 a.book(token, body(at="19:00"), "berlin-early")]
+        rows = a.reservations(token)
+        check([r["reference"] for r in rows] == [r["reference"] for r in items], "offset-aware list ordering")
+        a.expect(200, "PATCH", "/reservations/" + items[2]["reference"], {"starts_at_local": DAY + "T21:30"}, token)
+        check([r["reference"] for r in a.reservations(token)] == [items[0]["reference"], items[2]["reference"], items[1]["reference"]],
+              "amendment failed to update absolute list order")
+
+    def cancelled_after_cutoff_temporal(self):
+        zone = next(z for z in ("UTC", "Etc/GMT+6") if dt.datetime.now(ZoneInfo(z)).hour != 23)
+        fx = fixture(zone, "00:00", "23:59", slot=1, duration=1)
+        fx["restaurants"][0]["cancellation_cutoff_minutes"] = 0
+        a, token = self.fresh(fx)
+        now = dt.datetime.now(ZoneInfo(zone))
+        target = now.replace(second=0, microsecond=0) + dt.timedelta(minutes=1)
+        if (target - now).total_seconds() < 15:
+            target += dt.timedelta(minutes=1)
+        value = {**body(), "starts_at_local": target.replace(tzinfo=None).isoformat(timespec="minutes")}
+        original = a.book(token, value, "temporal-original")
+        cancelled = a.expect(200, "POST", "/reservations/" + original["reference"] + "/cancel", token=token)
+        replacement = a.book(token, value, "temporal-replacement")
+        while dt.datetime.now(UTC) <= target.astimezone(UTC):
+            time.sleep(.2)
+        check(a.expect(200, "POST", "/reservations/" + original["reference"] + "/cancel", token=token) == cancelled,
+              "repeat cancellation after cutoff failed or changed state")
+        a.expect(409, "PATCH", "/reservations/" + replacement["reference"], {"starts_at_local": DAY + "T18:00"},
+                 token, code="cutoff_passed")
+        check(a.expect(200, "GET", "/reservations/" + replacement["reference"], token=token) == replacement,
+              "repeat cancellation freed or modified replacement reservation")
 
     def availability_oracle(self):
         for slot, duration in ((30, 90), (17, 43), (45, 120)):
@@ -423,6 +568,21 @@ class Campaign:
                    - dt.datetime.fromisoformat(spring_res["starts_at"]).astimezone(UTC)).total_seconds() == 5400,
                   "spring duration not absolute")
 
+    def dst_closing_instant_boundaries(self):
+        for zone, day, closes, rejected in (
+                ("Europe/Berlin", "2026-03-29", "03:30", "01:30"),
+                ("America/New_York", "2026-03-08", "03:30", "01:30"),
+                ("Europe/Berlin", "2026-10-25", "02:30", "01:30"),
+                ("America/New_York", "2026-11-01", "01:30", "00:30")):
+            fx = fixture(zone, "00:00", closes)
+            a, token = self.fresh(fx)
+            expected = oracle(fx, day, 2)
+            check(a.availability(day) == expected, "DST duration fitting did not use resolved closing instant")
+            made = a.book(token, {**body(), "starts_at_local": expected[0]["starts_at_local"]}, "closing-fit")
+            closing = resolve(day + "T" + closes, zone).astimezone(UTC)
+            check(dt.datetime.fromisoformat(made["ends_at"]).astimezone(UTC) <= closing, "booking exceeds resolved close")
+            a.book(token, body("m", at=rejected, day=day), "closing-outside", 422, "outside_opening_hours")
+
     def moves_atomic_precedence(self):
         a, token = self.fresh()
         initial = [a.book(token, body(t), "initial-" + t) for t in ("z", "a", "m")]
@@ -443,6 +603,10 @@ class Campaign:
         a.expect(201, "POST", "/reservation-moves", {"moves": [{"reference": initial[0]["reference"]}]}, token, "failed-batch")
         conflict = {"moves": [{"reference": initial[0]["reference"], "table_id": "z"}]}
         a.expect(409, "POST", "/reservation-moves", conflict, token, "conflict", "table_unavailable")
+        unchanged = {"moves": [{"reference": initial[0]["reference"], "table_id": "m"},
+                               {"reference": initial[1]["reference"]}]}
+        a.expect(409, "POST", "/reservation-moves", unchanged, token, "unchanged-occupancy", "table_unavailable")
+        check(a.reservations(token) == before, "unchanged listed booking lost occupancy")
         precedence = {"moves": [{"reference": initial[0]["reference"], "party_size": 999},
                                 {"reference": initial[1]["reference"], "starts_at_local": DAY + "T18:01"}]}
         a.expect(422, "POST", "/reservation-moves", precedence, token, "prec", "party_exceeds_capacity")
@@ -451,6 +615,7 @@ class Campaign:
         a.expect(409, "POST", "/reservation-moves", {"moves": []}, token, "cycle", "idempotency_key_reuse")
         for value in (None, [], {}, "bad"):
             a.expect(422, "POST", "/reservation-moves", {"moves": value}, token, "invalid", "validation_failed")
+        a.expect(422, "POST", "/reservation-moves", {}, token, "missing-moves", "validation_failed")
         for moves in ([], [{"reference": initial[0]["reference"]}] * 2,
                       [{"reference": 7}], [{}], [{"reference": "ABSENT"}] * 9):
             a.expect(422, "POST", "/reservation-moves", {"moves": moves}, token, "shape", "validation_failed")
@@ -487,6 +652,44 @@ class Campaign:
                  "mixed", "validation_failed")
         check(a.reservations(token) == before, "mixed restaurant request changed state")
 
+    def duplicate_table_ids_and_short_seed_password(self):
+        fx = fixture()
+        short = PASSWORD[:3]
+        fx["users"][1]["password"] = short
+        other = copy.deepcopy(fx["restaurants"][0])
+        other["id"] = "other"
+        other["name"] = "Shared table identifiers"
+        fx["restaurants"].append(other)
+        a, token = self.fresh(fx)
+        short_token = a.login("bob", short)
+        a.expect(200, "GET", "/reservations", token=short_token)
+        first = a.book(token, body(), "namespace-r")
+        other_fixture = copy.deepcopy(fx)
+        other_fixture["restaurants"] = [other]
+        query = "/availability?restaurant_id=other&date=" + DAY + "&party_size=2"
+        available = a.expect(200, "GET", query)["slots"]
+        check(available == oracle(other_fixture, DAY, 2, [first]), "other restaurant shares occupancy by table ID")
+        check(available[0]["available_table_ids"] == ["z", "a", "m"], "first restaurant blocked other restaurant")
+        second = a.book(token, body(restaurant="other"), "namespace-other")
+        check(first["reference"] != second["reference"], "duplicate generated references across restaurant namespaces")
+        before = a.reservations(token)
+        a.expect(422, "POST", "/reservation-moves", {"moves": [{"reference": first["reference"]},
+                                                               {"reference": second["reference"]}]},
+                 token, "namespace-mixed", "validation_failed")
+        check(a.reservations(token) == before, "mixed namespace batch changed records")
+        snapshot = a.expect(200, "GET", "/_test/export")
+        d = self.dest
+        d.expect(204, "POST", "/_test/import", snapshot)
+        check(d.reservations(token) == before, "import lost restaurant/table namespace identity")
+        check(d.reservations(short_token) == [], "import changed short seeded owner's state")
+        check(d.reservations(d.login("bob", short)) == [], "import imposed signup password length on seeded account")
+        check(d.book(token, body(), "namespace-r", 200) == first, "import lost first namespace receipt")
+        check(d.book(token, body(restaurant="other"), "namespace-other", 200) == second, "import lost second namespace receipt")
+        d.expect(200, "POST", "/reservations/" + first["reference"] + "/cancel", token=token)
+        check(d.expect(200, "GET", query)["slots"] == oracle(other_fixture, DAY, 2, [second]),
+              "cancelling one restaurant changed another restaurant occupancy")
+        check(d.availability() == oracle(fx, DAY, 2), "cancel did not free selected restaurant namespace")
+
     def seed_ids_and_batch_cutoff(self):
         fx = fixture()
         fx["users"][0]["id"] = "u" * 64
@@ -512,6 +715,9 @@ class Campaign:
         before = a.reservations(token)
         a.expect(409, "POST", "/reservation-moves", request, token, "cutoff-batch", "cutoff_passed")
         check(a.reservations(token) == before, "batch cutoff changed state")
+        earlier = {"moves": [{"reference": new["reference"], "party_size": 999},
+                             {"reference": past["reference"], "party_size": 999}]}
+        a.expect(422, "POST", "/reservation-moves", earlier, token, "earlier-before-cutoff", "party_exceeds_capacity")
         a.expect(201, "POST", "/reservation-moves", {"moves": [{"reference": new["reference"]}]}, token, "cutoff-batch")
 
     def patch_and_batch_field_validation(self):
@@ -700,6 +906,65 @@ class Campaign:
         check(len(rows) == 1 and rows[0]["status"] == "cancelled", "replay resurrected cancelled booking")
         check(a.availability() == oracle(self.fx, DAY, 2), "cancel/replay race retained occupancy")
 
+    def legacy_direct_snapshot_continuity(self):
+        check(self.legacy is not None, "legacy compatibility endpoint was not configured")
+        source = self.legacy
+        source.reset(fixture())
+        token, second_token = source.login(), source.login()
+        create_request = body()
+        created = source.book(token, create_request, "legacy-create")
+        moves = {"moves": [{"reference": created["reference"], "table_id": "m"}]}
+        moved = source.expect(201, "POST", "/reservation-moves", moves, token, "legacy-batch")
+        source.expect(200, "POST", "/reservations/" + created["reference"] + "/cancel", token=token)
+        before = source.reservations(token)
+        snapshot = source.expect(200, "GET", "/_test/export")
+        if self.control:
+            (self.control / "pause-legacy").write_text("ready\n")
+            deadline = time.monotonic() + 30
+            while not (self.control / "legacy-unavailable").exists():
+                if time.monotonic() >= deadline:
+                    raise OSError("legacy source-unavailable handshake failed")
+                time.sleep(.1)
+        d = self.dest
+        d.reset(fixture())
+        destination_token = d.login()
+        d.book(destination_token, body("a"), "destination-only")
+        d.expect(204, "POST", "/_test/import", snapshot)
+        check(d.reservations(token) == before and d.reservations(second_token) == before,
+              "legacy direct-object import changed records or sessions")
+        check(d.reservations(d.login()) == before, "legacy import lost hashed-password login")
+        d.expect(401, "GET", "/reservations", token=destination_token, code="unauthenticated")
+        check(d.book(token, create_request, "legacy-create", 200) == created, "legacy original create receipt lost")
+        check(d.expect(200, "POST", "/reservation-moves", moves, token, "legacy-batch") == moved,
+              "legacy original batch receipt lost")
+        check(d.reservations(token) == before, "legacy historical replay changed cancelled state")
+        check(d.availability() == oracle(fixture(), DAY, 2), "legacy cancelled record occupied table")
+
+    def control_receipt_erasure(self):
+        a, old_token = self.fresh()
+        old = a.book(old_token, body(), "reset-erased-create")
+        a.expect(201, "POST", "/reservation-moves", {"moves": [{"reference": old["reference"]}]},
+                 old_token, "reset-erased-batch")
+        a.reset(fixture())
+        token = a.login()
+        a.expect(401, "GET", "/reservations", token=old_token, code="unauthenticated")
+        created = a.book(token, body(), "reset-erased-create")
+        a.expect(201, "POST", "/reservation-moves", {"moves": [{"reference": created["reference"], "table_id": "m"}]},
+                 token, "reset-erased-batch")
+        wanted = a.expect(200, "GET", "/_test/export")
+        d = self.dest
+        d.reset(fixture())
+        destination_token = d.login()
+        destination_only = d.book(destination_token, body("a"), "destination-erased-create")
+        d.expect(201, "POST", "/reservation-moves", {"moves": [{"reference": destination_only["reference"]}]},
+                 destination_token, "destination-erased-batch")
+        d.expect(204, "POST", "/_test/import", wanted)
+        d.expect(401, "GET", "/reservations", token=destination_token, code="unauthenticated")
+        incoming = d.book(token, body(), "destination-erased-create")
+        d.expect(201, "POST", "/reservation-moves", {"moves": [{"reference": incoming["reference"], "party_size": 1}]},
+                 token, "destination-erased-batch")
+        check(len(d.reservations(token)) == 2, "erased-key first uses duplicated or retained destination state")
+
     def snapshot_import_receipts(self):
         a, token = self.fresh()
         old_token = a.login()
@@ -764,13 +1029,18 @@ class Campaign:
         check(d.reservations(d.login()) == [], "reset retained imported state")
 
     def run(self, selected=None):
-        names = ("ignored_numeric_receipt_boundaries", "calendar_extremes", "public_auth_reset", "availability_oracle", "validation", "booking_boundaries_privacy",
-                     "receipt_semantics", "amendments_atomic_cutoff", "dst_oracle", "moves_atomic_precedence",
-                     "moves_eight_and_restaurant_scope", "seed_ids_and_batch_cutoff", "patch_and_batch_field_validation",
+        names = ("ignored_numeric_receipt_boundaries", "calendar_extremes", "numeric_equivalence_and_precision",
+                     "terminal_zone_instants", "public_auth_reset", "availability_oracle", "validation", "booking_boundaries_privacy",
+                     "receipt_semantics", "amendments_atomic_cutoff", "dst_oracle", "dst_closing_instant_boundaries", "moves_atomic_precedence",
+                     "moves_eight_and_restaurant_scope", "duplicate_table_ids_and_short_seed_password",
+                     "seed_ids_and_batch_cutoff", "patch_and_batch_field_validation",
                      "concurrency_identical_50", "concurrency_distinct_50",
                      "concurrency_changed_key_50", "concurrency_batch_snapshot", "concurrency_signup_and_users",
                      "export_atomic_batch", "control_replacement_races", "patch_batch_cancel_replay_races",
-                     "snapshot_import_receipts")
+                     "offset_ordering_and_amendment", "cancelled_after_cutoff_temporal",
+                     "legacy_direct_snapshot_continuity", "control_receipt_erasure", "snapshot_import_receipts")
+        if not self.legacy:
+            names = tuple(name for name in names if name != "legacy_direct_snapshot_continuity")
         if selected:
             check(all(name in names for name in selected), "unknown selected campaign case")
         for name in (selected or names):
@@ -787,7 +1057,7 @@ class Campaign:
             outcome["seconds"] = round(time.monotonic() - start, 3)
             self.results.append(outcome)
             print(json.dumps(outcome), flush=True)
-        timings = self.api.timings + self.dest.timings + (self.third.timings if self.third else [])
+        timings = self.api.timings + self.dest.timings + (self.third.timings if self.third else []) + (self.legacy.timings if self.legacy else [])
         return {"campaign": "independent-stage-1", "cases": self.results, "requests": len(timings),
                 "max_regular_request_seconds": round(max((x for p, x in timings if not p.startswith("/_test/")), default=0), 4),
                 "max_control_request_seconds": round(max((x for p, x in timings if p.startswith("/_test/")), default=0), 4),
@@ -817,11 +1087,25 @@ def calibrate():
     slots = oracle(fx, DAY, 3)
     check(slots[0]["available_table_ids"] == ["z", "m"], "oracle table capacity/order")
     check(slots[-1]["starts_at_local"].endswith("21:30"), "oracle closing boundary")
+    first = {"restaurant_id": "other", "table_id": "z", "status": "confirmed",
+             "starts_at": DAY + "T18:00:00+02:00", "ends_at": DAY + "T19:30:00+02:00"}
+    check(oracle(fx, DAY, 2, [first])[0]["available_table_ids"] == ["z", "a", "m"],
+          "VERIFIER COVERAGE GAP: cross-restaurant table-ID contamination")
     encoded = encode_json(json.loads('{"ignored":1e309}', parse_float=Decimal))
     check("Infinity" not in encoded and json.loads(encoded, parse_float=Decimal)["ignored"] == Decimal("1e309"),
           "verifier lost finite large JSON number")
+    precise, rounded = Decimal("1.0000000000000000001"), Decimal("1.0")
+    check(precise != rounded and float(precise) == float(rounded), "numeric precision mutant calibration ineffective")
+    close_fixture = fixture("Europe/Berlin", "00:00", "03:30")
+    correct = oracle(close_fixture, "2026-03-29", 2)
+    wall_fit_mutant = dt.datetime(2026, 3, 29, 1, 30) + dt.timedelta(minutes=90) <= dt.datetime(2026, 3, 29, 3, 30)
+    check(wall_fit_mutant and "2026-03-29T01:30" not in [s["starts_at_local"] for s in correct],
+          "VERIFIER COVERAGE GAP: wall-clock closing fit")
+    check(instant_seconds("9999-12-31T23:00:00-05:00") - instant_seconds("9999-12-31T22:00:00-05:00") == 3600,
+          "terminal unbounded instant oracle failed")
     print(json.dumps({"calibration": "PASS", "controlled_variants_detected":
-                      ["closed interval", "second repeated occurrence", "wall-clock duration"],
+                      ["closed interval", "second repeated occurrence", "wall-clock duration",
+                       "cross-restaurant table contamination", "binary64 numeric equality collapse", "wall-clock closing fit"],
                       "scope": "oracle calibration only; no production mutation"}))
 
 
@@ -831,6 +1115,7 @@ def main():
     parser.add_argument("--source")
     parser.add_argument("--destination")
     parser.add_argument("--third")
+    parser.add_argument("--legacy")
     parser.add_argument("--control")
     parser.add_argument("--cases", nargs="+")
     parser.add_argument("--out")
@@ -840,7 +1125,7 @@ def main():
         return 0
     if not all((args.source, args.destination, args.out)):
         parser.error("http requires --source, --destination, --out")
-    report = Campaign(args.source, args.destination, args.control, args.third).run(args.cases)
+    report = Campaign(args.source, args.destination, args.control, args.third, args.legacy).run(args.cases)
     Path(args.out).write_text(json.dumps(report, indent=2) + "\n")
     return 0 if report["all_passed"] else 1
 
