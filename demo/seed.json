@@ -1,0 +1,385 @@
+{
+  "users": [
+    {
+      "id": "u_demo",
+      "email": "demo@example.com",
+      "password": "password123",
+      "display_name": "Demo Guest"
+    }
+  ],
+  "restaurants": [
+    {
+      "id": "r_aurelia",
+      "name": "Maison Aurelia",
+      "timezone": "Europe/Berlin",
+      "slot_minutes": 30,
+      "reservation_duration_minutes": 90,
+      "cancellation_cutoff_minutes": 120,
+      "opening_hours": [
+        {
+          "weekday": "mon",
+          "opens": "17:00",
+          "closes": "23:00"
+        },
+        {
+          "weekday": "tue",
+          "opens": "17:00",
+          "closes": "23:00"
+        },
+        {
+          "weekday": "wed",
+          "opens": "17:00",
+          "closes": "23:00"
+        },
+        {
+          "weekday": "thu",
+          "opens": "17:00",
+          "closes": "23:00"
+        },
+        {
+          "weekday": "fri",
+          "opens": "17:00",
+          "closes": "23:30"
+        },
+        {
+          "weekday": "sat",
+          "opens": "17:00",
+          "closes": "23:30"
+        },
+        {
+          "weekday": "sun",
+          "opens": "17:00",
+          "closes": "22:00"
+        }
+      ],
+      "tables": [
+        {
+          "id": "a1",
+          "label": "Window for two",
+          "capacity": 2
+        },
+        {
+          "id": "a2",
+          "label": "Garden table",
+          "capacity": 4
+        },
+        {
+          "id": "a3",
+          "label": "Family table",
+          "capacity": 6
+        }
+      ]
+    },
+    {
+      "id": "r_osteria",
+      "name": "Osteria Verde",
+      "timezone": "Europe/Rome",
+      "slot_minutes": 30,
+      "reservation_duration_minutes": 120,
+      "cancellation_cutoff_minutes": 180,
+      "opening_hours": [
+        {
+          "weekday": "mon",
+          "opens": "18:00",
+          "closes": "23:00"
+        },
+        {
+          "weekday": "tue",
+          "opens": "18:00",
+          "closes": "23:00"
+        },
+        {
+          "weekday": "wed",
+          "opens": "18:00",
+          "closes": "23:00"
+        },
+        {
+          "weekday": "thu",
+          "opens": "18:00",
+          "closes": "23:30"
+        },
+        {
+          "weekday": "fri",
+          "opens": "18:00",
+          "closes": "23:30"
+        },
+        {
+          "weekday": "sat",
+          "opens": "17:30",
+          "closes": "23:30"
+        },
+        {
+          "weekday": "sun",
+          "opens": "17:30",
+          "closes": "22:30"
+        }
+      ],
+      "tables": [
+        {
+          "id": "o1",
+          "label": "Candlelit table",
+          "capacity": 2
+        },
+        {
+          "id": "o2",
+          "label": "Courtyard table",
+          "capacity": 4
+        },
+        {
+          "id": "o3",
+          "label": "Long family table",
+          "capacity": 8
+        }
+      ]
+    },
+    {
+      "id": "r_lumiere",
+      "name": "Atelier Lumiere",
+      "timezone": "Europe/Paris",
+      "slot_minutes": 30,
+      "reservation_duration_minutes": 90,
+      "cancellation_cutoff_minutes": 240,
+      "opening_hours": [
+        {
+          "weekday": "mon",
+          "opens": "18:30",
+          "closes": "22:30"
+        },
+        {
+          "weekday": "tue",
+          "opens": "18:30",
+          "closes": "22:30"
+        },
+        {
+          "weekday": "wed",
+          "opens": "18:30",
+          "closes": "22:30"
+        },
+        {
+          "weekday": "thu",
+          "opens": "18:30",
+          "closes": "23:00"
+        },
+        {
+          "weekday": "fri",
+          "opens": "18:30",
+          "closes": "23:00"
+        },
+        {
+          "weekday": "sat",
+          "opens": "18:00",
+          "closes": "23:00"
+        },
+        {
+          "weekday": "sun",
+          "opens": "18:00",
+          "closes": "22:00"
+        }
+      ],
+      "tables": [
+        {
+          "id": "l1",
+          "label": "Salon table",
+          "capacity": 2
+        },
+        {
+          "id": "l2",
+          "label": "Terrace table",
+          "capacity": 4
+        },
+        {
+          "id": "l3",
+          "label": "Chef's room",
+          "capacity": 6
+        }
+      ]
+    },
+    {
+      "id": "r_sakura",
+      "name": "Sakura House",
+      "timezone": "Asia/Tokyo",
+      "slot_minutes": 30,
+      "reservation_duration_minutes": 90,
+      "cancellation_cutoff_minutes": 120,
+      "opening_hours": [
+        {
+          "weekday": "mon",
+          "opens": "17:30",
+          "closes": "22:30"
+        },
+        {
+          "weekday": "tue",
+          "opens": "17:30",
+          "closes": "22:30"
+        },
+        {
+          "weekday": "wed",
+          "opens": "17:30",
+          "closes": "22:30"
+        },
+        {
+          "weekday": "thu",
+          "opens": "17:30",
+          "closes": "22:30"
+        },
+        {
+          "weekday": "fri",
+          "opens": "17:30",
+          "closes": "23:00"
+        },
+        {
+          "weekday": "sat",
+          "opens": "17:00",
+          "closes": "23:00"
+        },
+        {
+          "weekday": "sun",
+          "opens": "17:00",
+          "closes": "22:00"
+        }
+      ],
+      "tables": [
+        {
+          "id": "s1",
+          "label": "Tatami for two",
+          "capacity": 2
+        },
+        {
+          "id": "s2",
+          "label": "Garden booth",
+          "capacity": 4
+        },
+        {
+          "id": "s3",
+          "label": "Private room",
+          "capacity": 6
+        }
+      ]
+    },
+    {
+      "id": "r_ember",
+      "name": "Ember & Oak",
+      "timezone": "Europe/London",
+      "slot_minutes": 30,
+      "reservation_duration_minutes": 120,
+      "cancellation_cutoff_minutes": 120,
+      "opening_hours": [
+        {
+          "weekday": "mon",
+          "opens": "17:00",
+          "closes": "23:00"
+        },
+        {
+          "weekday": "tue",
+          "opens": "17:00",
+          "closes": "23:00"
+        },
+        {
+          "weekday": "wed",
+          "opens": "17:00",
+          "closes": "23:00"
+        },
+        {
+          "weekday": "thu",
+          "opens": "17:00",
+          "closes": "23:00"
+        },
+        {
+          "weekday": "fri",
+          "opens": "17:00",
+          "closes": "23:30"
+        },
+        {
+          "weekday": "sat",
+          "opens": "16:30",
+          "closes": "23:30"
+        },
+        {
+          "weekday": "sun",
+          "opens": "16:30",
+          "closes": "22:00"
+        }
+      ],
+      "tables": [
+        {
+          "id": "e1",
+          "label": "Fireplace table",
+          "capacity": 2
+        },
+        {
+          "id": "e2",
+          "label": "Oak booth",
+          "capacity": 4
+        },
+        {
+          "id": "e3",
+          "label": "Feasting table",
+          "capacity": 8
+        }
+      ]
+    },
+    {
+      "id": "r_nocturne",
+      "name": "Nocturne Dining",
+      "timezone": "America/New_York",
+      "slot_minutes": 30,
+      "reservation_duration_minutes": 90,
+      "cancellation_cutoff_minutes": 180,
+      "opening_hours": [
+        {
+          "weekday": "mon",
+          "opens": "17:30",
+          "closes": "23:00"
+        },
+        {
+          "weekday": "tue",
+          "opens": "17:30",
+          "closes": "23:00"
+        },
+        {
+          "weekday": "wed",
+          "opens": "17:30",
+          "closes": "23:00"
+        },
+        {
+          "weekday": "thu",
+          "opens": "17:30",
+          "closes": "23:30"
+        },
+        {
+          "weekday": "fri",
+          "opens": "17:30",
+          "closes": "23:30"
+        },
+        {
+          "weekday": "sat",
+          "opens": "17:00",
+          "closes": "23:30"
+        },
+        {
+          "weekday": "sun",
+          "opens": "17:00",
+          "closes": "22:30"
+        }
+      ],
+      "tables": [
+        {
+          "id": "n1",
+          "label": "Velvet table",
+          "capacity": 2
+        },
+        {
+          "id": "n2",
+          "label": "Library booth",
+          "capacity": 4
+        },
+        {
+          "id": "n3",
+          "label": "Private dining room",
+          "capacity": 10
+        }
+      ]
+    }
+  ],
+  "reservations": []
+}
