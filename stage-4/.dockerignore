@@ -1,0 +1,13 @@
+*
+!Dockerfile
+!domain.py
+!service.py
+!server.py
+!json_value.py
+!policies.py
+!history.py
+!state.py
+!public/
+!public/index.html
+!public/app.js
+!public/styles.css
