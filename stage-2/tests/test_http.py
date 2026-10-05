@@ -1,13 +1,17 @@
 import json
 import threading
+import tempfile
 import unittest
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from unittest.mock import patch
 
 import server
 from service import Service
 from test_service import fixture
+from test_combinations import paired_fixture
 from json_value import loads, dumps
 
 
@@ -50,6 +54,22 @@ class HTTPTests(unittest.TestCase):
         status, body, _ = self.call('/auth/signup', body={'email': 'bad', 'password': 'password123', 'display_name': 'Ada'})
         self.assertEqual((status, body['error']['code']), (422, 'validation_failed'))
 
+    def test_fixed_browser_routes_serve_local_assets_and_no_arbitrary_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            assets = {'index.html': b'<!doctype html><title>Tablekeeper</title>',
+                      'app.js': b'const local = true;', 'styles.css': b'body { color: black; }'}
+            for filename, content in assets.items():
+                (Path(directory) / filename).write_bytes(content)
+            with patch.object(server, 'PUBLIC', Path(directory)):
+                for route, (filename, content_type) in server.ASSETS.items():
+                    with urllib.request.urlopen(self.base + route + '?ignored=1', timeout=5) as response:
+                        self.assertEqual(response.status, 200)
+                        self.assertEqual(response.headers['Content-Type'], content_type)
+                        self.assertEqual(response.read(), assets[filename])
+                for path in ('/assets/../service.py', '/assets/%2e%2e/service.py', '/public/index.html'):
+                    status, error, _ = self.call(path)
+                    self.assertEqual((status, error['error']['code']), (401, 'unauthenticated'))
+
     def test_fifty_http_retries_commit_once(self):
         self.assertEqual(self.call('/_test/reset', body=fixture())[0], 204)
         token = self.call('/auth/login', body={'email': 'alice@example.com', 'password': 'password123'})[1]['token']
@@ -63,6 +83,39 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(sum(status == 201 for status, _, _ in results), 1)
         self.assertEqual(sum(status == 200 for status, _, _ in results), 49)
         self.assertTrue(all(response == results[0][1] for _, response, _ in results))
+
+    def test_pair_http_retries_conflicts_and_portable_snapshot(self):
+        self.assertEqual(self.call('/_test/reset', body=paired_fixture())[0], 204)
+        token = self.login()
+        headers = {'Authorization': 'Bearer ' + token, 'Idempotency-Key': 'pair-retry'}
+        body = {'restaurant_id': 'r', 'table_ids': ['a', 'b'], 'starts_at_local': '2032-06-03T18:00', 'party_size': 6}
+        barrier = threading.Barrier(50)
+        def write(_):
+            barrier.wait()
+            return self.call('/reservations', body=body, headers=headers)
+        with ThreadPoolExecutor(max_workers=50) as workers:
+            results = list(workers.map(write, range(50)))
+        self.assertEqual([status for status, _, _ in results].count(201), 1)
+        self.assertEqual([status for status, _, _ in results].count(200), 49)
+        original = results[0][1]
+        self.assertEqual(original['table_ids'], ['b', 'a'])
+        self.assertNotIn('table_id', original)
+        self.assertTrue(all(response == original for _, response, _ in results))
+        status, error, _ = self.call('/reservations', body={**body, 'table_ids': ['b', 'a']}, headers=headers)
+        self.assertEqual((status, error['error']['code']), (409, 'idempotency_key_reuse'))
+        status, error, _ = self.call('/reservations', body={**body, 'table_ids': ['b'], 'party_size': 4},
+                                     headers={**headers, 'Idempotency-Key': 'member'})
+        self.assertEqual((status, error['error']['code']), (409, 'table_unavailable'))
+        snapshot = self.call('/_test/export')[1]
+        server.service = Service()
+        self.assertEqual(self.call('/_test/import', body=snapshot)[0], 204)
+        route = '/reservations/' + original['reference']
+        auth = {'Authorization': 'Bearer ' + token}
+        self.assertEqual(self.call(route, headers=auth)[1], original)
+        self.assertEqual(self.call(route + '/cancel', body={}, headers=auth)[1]['status'], 'cancelled')
+        self.assertEqual(self.call('/reservations', body=body, headers=headers)[:2], (200, original))
+        self.assertEqual(self.call('/reservations', body={**body, 'table_ids': ['b'], 'party_size': 4},
+                                   headers={**headers, 'Idempotency-Key': 'member'})[0], 201)
 
     def login(self):
         return self.call('/auth/login', body={'email': 'alice@example.com', 'password': 'password123'})[1]['token']

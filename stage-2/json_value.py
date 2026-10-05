@@ -100,6 +100,21 @@ def loads(value):
     return json.loads(value, parse_float=JSONNumber, parse_constant=reject_constant)
 
 
+def add_numbers(left, right):
+    """Exact addition for summed table capacities, without binary floats."""
+    if type(left) is int and type(right) is int:
+        return left + right
+    a, b = JSONNumber.from_value(left), JSONNumber.from_value(right)
+    scale = min(a.scale, b.scale)
+    a_coefficient = int(a.digits + '0' * (a.scale - scale))
+    b_coefficient = int(b.digits + '0' * (b.scale - scale))
+    if a.negative:
+        a_coefficient = -a_coefficient
+    if b.negative:
+        b_coefficient = -b_coefficient
+    return JSONNumber(str(a_coefficient + b_coefficient) + 'e' + str(scale)).model_integer()
+
+
 def dumps(value):
     if type(value) is JSONNumber:
         return value.token

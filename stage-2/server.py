@@ -1,6 +1,7 @@
 """Threaded HTTP transport; the service owns all application transactions."""
 import os
 import sys
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlsplit
 
@@ -9,6 +10,15 @@ from service import Service
 from json_value import loads, dumps
 
 service = Service()
+PUBLIC = Path(__file__).resolve().parent / 'public'
+ASSETS = {
+    '/': ('index.html', 'text/html; charset=utf-8'),
+    '/signup': ('index.html', 'text/html; charset=utf-8'),
+    '/login': ('index.html', 'text/html; charset=utf-8'),
+    '/lookup': ('index.html', 'text/html; charset=utf-8'),
+    '/assets/app.js': ('app.js', 'application/javascript; charset=utf-8'),
+    '/assets/styles.css': ('styles.css', 'text/css; charset=utf-8'),
+}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -22,6 +32,19 @@ class Handler(BaseHTTPRequestHandler):
         try:
             split = urlsplit(self.path)
             path = unquote(split.path)
+            if self.command == 'GET' and path in ASSETS:
+                filename, content_type = ASSETS[path]
+                try:
+                    asset = (PUBLIC / filename).read_bytes()
+                except FileNotFoundError:
+                    fail('not_found', 404)
+                self.send_response(200)
+                self.send_header('Content-Type', content_type)
+                self.send_header('Content-Length', str(len(asset)))
+                self.send_header('Cache-Control', 'no-store')
+                self.end_headers()
+                self.wfile.write(asset)
+                return
             body = {}
             if self.command in ('POST', 'PATCH', 'PUT'):
                 try:

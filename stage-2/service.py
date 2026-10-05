@@ -7,11 +7,11 @@ import threading
 import uuid
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-from json_value import is_number, loads, dumps
+from json_value import is_number, loads, dumps, add_numbers
 
 from domain import (APIError, UTC, WEEKDAYS, booking, bounds, check_password, email,
                     fail, field, fixed_instant, hash_password, identifier, local_date, overlaps,
-                    party, positive_integer, read_timestamp, resolve, same_json,
+                    members, party, positive_integer, read_timestamp, resolve, same_json, stored_booking_fields,
                     timestamp, valid_hash)
 
 
@@ -62,6 +62,23 @@ def restaurant_from_fixture(value):
             fail()
         seen.add(table['id'])
         result['tables'].append(table)
+    result['combinable'] = []
+    pairs = field(value, 'combinable', list) if 'combinable' in value else []
+    seen_pairs = set()
+    for pair in pairs:
+        if type(pair) is not list:
+            fail('malformed_request', 400)
+        if len(pair) != 2:
+            fail()
+        for table_id in pair:
+            if type(table_id) is not str:
+                fail('malformed_request', 400)
+            identifier(table_id)
+        key = frozenset(pair)
+        if len(key) != 2 or not key.issubset(seen) or key in seen_pairs:
+            fail()
+        seen_pairs.add(key)
+        result['combinable'].append(list(pair))
     return result
 
 
@@ -98,7 +115,10 @@ def fixture_state(body):
         if (not re.fullmatch('[A-Z0-9]{6,12}', reference) or reference in state['reservations']
                 or res_id in reservation_ids or user_id not in state['users']):
             fail()
-        result.update(reservation_id=res_id, reference=reference, user_id=user_id, status='confirmed',
+        status = field(entry, 'status', str) if 'status' in entry else 'confirmed'
+        if status not in ('confirmed', 'cancelled'):
+            fail()
+        result.update(reservation_id=res_id, reference=reference, user_id=user_id, status=status,
                       created_at=timestamp(datetime.now(UTC)))
         if any(overlaps(result, r) for r in state['reservations'].values()):
             fail()
@@ -119,6 +139,7 @@ def imported_state(body):
             state = loads(state['payload'])
         if type(state) is not dict or set(state) != set(empty_state()) or any(type(v) is not dict for v in state.values()):
             fail()
+        state = copy.deepcopy(state)
         emails, reservation_ids = set(), set()
         for uid, user in state['users'].items():
             identifier(uid)
@@ -131,8 +152,10 @@ def imported_state(body):
             emails.add(address)
         for rid, restaurant in state['restaurants'].items():
             normalized = restaurant_from_fixture(restaurant)
-            if normalized != restaurant or normalized['id'] != rid:
+            source_shape = normalized if 'combinable' in restaurant else {k: v for k, v in normalized.items() if k != 'combinable'}
+            if source_shape != restaurant or normalized['id'] != rid:
                 fail()
+            state['restaurants'][rid] = normalized
         for reference, reservation in state['reservations'].items():
             if type(reservation) is not dict or not re.fullmatch('[A-Z0-9]{6,12}', reference):
                 fail()
@@ -144,12 +167,16 @@ def imported_state(body):
             if rid in reservation_ids:
                 fail()
             reservation_ids.add(rid)
-            expected = booking(state['restaurants'][reservation['restaurant_id']], reservation)
-            if any(reservation.get(k) != v for k, v in expected.items()):
+            expected = booking(state['restaurants'][reservation['restaurant_id']], stored_booking_fields(reservation))
+            source_shape = expected if 'table_ids' in reservation else {k: v for k, v in expected.items() if k != 'table_ids'}
+            if any(reservation.get(k) != v for k, v in source_shape.items()):
                 fail()
             read_timestamp(field(reservation, 'created_at', str))
-            if set(reservation) != set(expected) | {'reservation_id', 'reference', 'user_id', 'status', 'created_at'}:
+            if set(reservation) != set(source_shape) | {'reservation_id', 'reference', 'user_id', 'status', 'created_at'}:
                 fail()
+            # Migration enriches current records only. Historical receipts below
+            # retain their exact original selection/body/response JSON values.
+            reservation['table_ids'] = list(expected['table_ids'])
         records = list(state['reservations'].values())
         for index, reservation in enumerate(records):
             if any(overlaps(reservation, other) for other in records[index + 1:]):
@@ -174,10 +201,13 @@ def imported_state(body):
                     fail()
                 current = state['reservations'][original['reference']]
                 if (original.get('reservation_id') != current['reservation_id'] or current['user_id'] != scope[0]
-                        or original.get('status') != 'confirmed' or set(original) != set(public(current))):
+                        or original.get('status') != 'confirmed'):
                     fail()
-                expected = booking(state['restaurants'][original['restaurant_id']], original)
-                if any(original[k] != v for k, v in expected.items()):
+                expected = booking(state['restaurants'][original['restaurant_id']], stored_booking_fields(original))
+                source_shape = expected if 'table_ids' in original else {k: v for k, v in expected.items() if k != 'table_ids'}
+                if set(original) != set(source_shape) | {'reservation_id', 'reference', 'status', 'created_at'}:
+                    fail()
+                if any(original[k] != v for k, v in source_shape.items()):
                     fail()
                 read_timestamp(original['created_at'])
         return copy.deepcopy(state)
@@ -238,10 +268,22 @@ class Service:
             fail('reservation_cancelled', 409)
         self.cutoff(reservation)
         candidate = dict(reservation)
-        for key in ('table_id', 'starts_at_local', 'party_size'):
+        candidate.pop('table_id', None)
+        candidate.pop('table_ids', None)
+        if 'table_id' in changes and 'table_ids' in changes:
+            fail()
+        if 'table_id' in changes:
+            candidate['table_id'] = changes['table_id']
+        elif 'table_ids' in changes:
+            candidate['table_ids'] = changes['table_ids']
+        else:
+            candidate['table_ids'] = list(members(reservation))
+        for key in ('starts_at_local', 'party_size'):
             if key in changes:
                 candidate[key] = changes[key]
         candidate.update(booking(self.state['restaurants'][reservation['restaurant_id']], candidate))
+        if all(same_json(candidate.get(k), reservation.get(k)) for k in candidate) and set(candidate) == set(reservation):
+            return dict(reservation)
         return candidate
 
     def ensure_available(self, candidates, excluded=()):
@@ -313,12 +355,22 @@ class Service:
                         if restaurant['reservation_duration_minutes'] <= (closing - start).total_seconds() / 60:
                             end = start + timedelta(minutes=int(restaurant['reservation_duration_minutes']))
                             available = []
+                            options = []
+                            tables = {table['id']: table for table in restaurant['tables']}
                             for table in restaurant['tables']:
-                                candidate = {'restaurant_id': restaurant['id'], 'table_id': table['id'], 'status': 'confirmed',
+                                candidate = {'restaurant_id': restaurant['id'], 'table_ids': [table['id']], 'status': 'confirmed',
                                              'starts_at': timestamp(start, zone), 'ends_at': timestamp(end, zone)}
                                 if table['capacity'] >= count and not any(overlaps(candidate, r) for r in self.state['reservations'].values()):
                                     available.append(table['id'])
-                            slots.append({'starts_at_local': local.isoformat(timespec='minutes'), 'starts_at': timestamp(start, zone), 'available_table_ids': available})
+                                    options.append({'table_ids': [table['id']], 'capacity': table['capacity']})
+                            for pair in restaurant.get('combinable', []):
+                                capacity = add_numbers(tables[pair[0]]['capacity'], tables[pair[1]]['capacity'])
+                                candidate = {'restaurant_id': restaurant['id'], 'table_ids': pair, 'status': 'confirmed',
+                                             'starts_at': timestamp(start, zone), 'ends_at': timestamp(end, zone)}
+                                if capacity >= count and not any(overlaps(candidate, r) for r in self.state['reservations'].values()):
+                                    options.append({'table_ids': list(pair), 'capacity': capacity})
+                            slots.append({'starts_at_local': local.isoformat(timespec='minutes'), 'starts_at': timestamp(start, zone),
+                                          'available_table_ids': available, 'available_options': options})
                     except APIError as exc:
                         if exc.code != 'invalid_local_time':
                             raise

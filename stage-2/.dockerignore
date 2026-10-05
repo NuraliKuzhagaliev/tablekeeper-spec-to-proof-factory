@@ -4,3 +4,7 @@
 !service.py
 !server.py
 !json_value.py
+!public/
+!public/index.html
+!public/app.js
+!public/styles.css

@@ -5,7 +5,7 @@ import re
 import secrets
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-from json_value import JSONNumber, is_number
+from json_value import JSONNumber, is_number, add_numbers
 
 UTC = timezone.utc
 WEEKDAYS = ('mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun')
@@ -139,11 +139,45 @@ def bounds(restaurant, day):
     return opening, closing
 
 
-def booking(restaurant, body):
-    table_id = identifier(field(body, 'table_id', str))
-    table = next((t for t in restaurant['tables'] if t['id'] == table_id), None)
-    if table is None:
+def members(reservation):
+    return reservation['table_ids'] if 'table_ids' in reservation else [reservation['table_id']]
+
+
+def selection(restaurant, body):
+    # Only explicit request selectors are mutually exclusive. Stored single
+    # responses carry both fields, so callers merge defaults after this step.
+    if 'table_id' in body and 'table_ids' in body:
+        fail()
+    if 'table_ids' in body:
+        selected = field(body, 'table_ids', list)
+        if not selected:
+            fail()
+        for value in selected:
+            if type(value) is not str:
+                fail('malformed_request', 400)
+            identifier(value)
+        if len(set(selected)) != len(selected):
+            fail()
+        if len(selected) > 2:
+            fail('combination_not_allowed')
+    else:
+        selected = [identifier(field(body, 'table_id', str))]
+    tables = {table['id']: table for table in restaurant['tables']}
+    if any(table_id not in tables for table_id in selected):
         fail('not_found', 404)
+    if len(selected) == 2:
+        declared = next((pair for pair in restaurant.get('combinable', []) if set(pair) == set(selected)), None)
+        if declared is None:
+            fail('combination_not_allowed')
+        selected = list(declared)
+    capacity = tables[selected[0]]['capacity']
+    if len(selected) == 2:
+        capacity = add_numbers(capacity, tables[selected[1]]['capacity'])
+    return list(selected), capacity
+
+
+def booking(restaurant, body):
+    table_ids, capacity = selection(restaurant, body)
     if 'party_size' not in body:
         fail()
     count = party(body['party_size'])
@@ -161,17 +195,25 @@ def booking(restaurant, body):
     grid = restaurant['slot_minutes']
     if elapsed and (grid > elapsed or elapsed % int(grid)):
         fail('not_on_slot_grid')
-    if count > table['capacity']:
+    if count > capacity:
         fail('party_exceeds_capacity')
-    return {'restaurant_id': restaurant['id'], 'table_id': table_id, 'party_size': count,
+    result = {'restaurant_id': restaurant['id'], 'table_ids': table_ids, 'party_size': count,
             'starts_at_local': local.isoformat(timespec='minutes'),
             'starts_at': timestamp(start, restaurant['timezone']),
             'ends_at': timestamp(end, restaurant['timezone'])}
+    if len(table_ids) == 1:
+        result['table_id'] = table_ids[0]
+    return result
+
+
+def stored_booking_fields(reservation):
+    return {'table_ids': list(members(reservation)), 'party_size': reservation['party_size'],
+            'starts_at_local': reservation['starts_at_local']}
 
 
 def overlaps(a, b):
     return (a['status'] == b['status'] == 'confirmed' and a['restaurant_id'] == b['restaurant_id']
-            and a['table_id'] == b['table_id'] and read_timestamp(a['starts_at']) < read_timestamp(b['ends_at'])
+            and bool(set(members(a)).intersection(members(b))) and read_timestamp(a['starts_at']) < read_timestamp(b['ends_at'])
             and read_timestamp(b['starts_at']) < read_timestamp(a['ends_at']))
 
 
