@@ -263,7 +263,7 @@
   }
   function changeIntent(booking) {
     booking.generation = ++state.intentGeneration;
-    booking.attempt = null; booking.feedback = ''; booking.outcome = 'idle'; booking.confirmation = null;
+    booking.attempt = null; booking.feedback = ''; booking.outcome = 'idle'; booking.confirmation = null; booking.currentConfirmation = null;
   }
   function updateBookingFeedback() {
     const booking = state.booking; const feedback = document.getElementById('booking-feedback');
@@ -276,8 +276,39 @@
     button.disabled = booking.outcome === 'sending';
     button.textContent = booking.outcome === 'sending' ? 'Confirming…' : booking.outcome === 'uncertain' ? 'Retry this reservation' : booking.outcome === 'confirmed' ? 'Check this confirmation' : 'Confirm reservation';
     const confirmationRegion = document.getElementById('confirmation-region');
-    const reservation = booking.confirmation;
-    confirmationRegion.innerHTML = reservation && booking.outcome === 'confirmed' ? `<section class="confirmation" ${hook('confirmation')}><div><h3>You have a place at the table.</h3><p ${hook('confirmation-details')}>${escape(booking.snapshot.restaurant.name)} · ${escape(seatName(booking.snapshot.restaurant,members(reservation)))} · ${escape(localDate(reservation.starts_at_local.slice(0,10)))} at ${escape(localTime(reservation.starts_at_local))}</p><p ${hook('confirmation-tables')}>${escape(seatName(booking.snapshot.restaurant,members(reservation)))}</p></div><div class="reference-block"><small>Your reservation reference</small><div class="reference" ${hook('confirmation-reference')}>${escape(reservation.reference)}</div><a href="/lookup?reference=${encodeURIComponent(reservation.reference)}" data-nav>View your reservation ↗</a></div></section>` : '';
+    const receipt = booking.confirmation;
+    const view = booking.currentConfirmation;
+    const reservation = view?.value || receipt;
+    const currentDetails = view?.status === 'ready';
+    const title = currentDetails && reservation.status === 'cancelled' ? 'This reservation is now cancelled.'
+      : currentDetails ? 'You have a place at the table.' : 'Your original booking is confirmed.';
+    confirmationRegion.innerHTML = receipt && booking.outcome === 'confirmed' ? `<section class="confirmation" ${hook('confirmation')}><div><h3>${title}</h3><p class="confirmation-context">${currentDetails ? 'Your current reservation details' : 'Your original confirmation details'}</p><p ${hook('confirmation-details')}>${escape(booking.snapshot.restaurant.name)} · ${escape(seatName(booking.snapshot.restaurant,members(reservation)))} · ${escape(localDate(reservation.starts_at_local.slice(0,10)))} at ${escape(localTime(reservation.starts_at_local))}</p><p ${hook('confirmation-tables')}>${escape(seatName(booking.snapshot.restaurant,members(reservation)))}</p>${view?.status === 'loading' ? `<div class="confirmation-read" ${hook('confirmation-current-loading')}>${loading('Checking your current seating…')}</div>` : view?.status === 'error' ? `<div class="confirmation-read notice uncertain" role="status" ${hook('confirmation-current-error')}>${escape(view.error)}<button type="button" class="secondary" ${hook('confirmation-current-refresh')}>Check current details</button></div>` : ''}</div><div class="reference-block"><small>Your original confirmation reference</small><div class="reference" ${hook('confirmation-reference')}>${escape(receipt.reference)}</div><a href="/lookup?reference=${encodeURIComponent(receipt.reference)}" data-nav>View your reservation ↗</a></div></section>` : '';
+    confirmationRegion.querySelector('[data-testid="confirmation-current-refresh"]')?.addEventListener('click', () => refreshCurrentConfirmation(booking));
+  }
+  async function refreshCurrentConfirmation(booking) {
+    if (state.booking !== booking || !state.user || booking.outcome !== 'confirmed' || !booking.confirmation || !booking.attempt) return;
+    const receipt = booking.confirmation;
+    const attempt = booking.attempt;
+    const view = {status:'loading',value:null,error:''};
+    booking.currentConfirmation = view;
+    const current = () => state.route === '/' && state.booking === booking && booking.attempt === attempt
+      && booking.generation === attempt.generation && state.userGeneration === attempt.userGeneration
+      && booking.confirmation === receipt && booking.currentConfirmation === view && booking.outcome === 'confirmed';
+    updateBookingFeedback();
+    try {
+      const reservation = await api('/reservations/'+encodeURIComponent(receipt.reference), {headers:authHeaders(attempt.token)});
+      if (!current()) return;
+      if (reservation.reference !== receipt.reference || reservation.restaurant_id !== booking.snapshot.restaurant.id
+        || typeof reservation.starts_at_local !== 'string' || !['confirmed','cancelled'].includes(reservation.status)
+        || !(Array.isArray(reservation.table_ids) ? reservation.table_ids.length > 0 && reservation.table_ids.length <= 2
+          && reservation.table_ids.every(id => typeof id === 'string') : typeof reservation.table_id === 'string')) throw new Error('Unreadable current details');
+      view.value = reservation; view.status = 'ready';
+    } catch (_) {
+      if (!current()) return;
+      view.status = 'error';
+      view.error = 'Your original booking was confirmed. We could not check its current seating. The details above are from that original confirmation; check again or view your reservation.';
+    }
+    if (current()) updateBookingFeedback();
   }
   async function submitBooking(booking) {
     if (state.booking !== booking || booking.outcome === 'sending') return;
@@ -291,12 +322,14 @@
     }
     const attempt = booking.attempt;
     const current = () => state.booking === booking && booking.attempt === attempt && state.userGeneration === attempt.userGeneration && booking.generation === attempt.generation;
-    booking.outcome = 'sending'; booking.feedback = ''; booking.confirmation = null; updateBookingFeedback();
+    booking.outcome = 'sending'; booking.feedback = ''; booking.confirmation = null; booking.currentConfirmation = null; updateBookingFeedback();
     try {
       const response = await api('/reservations', {method:'POST',headers:{...authHeaders(attempt.token),'Idempotency-Key':attempt.key},body:attempt.body});
       if (!current()) return;
       if (typeof response.reference !== 'string' || typeof response.starts_at_local !== 'string' || (!Array.isArray(response.table_ids) && typeof response.table_id !== 'string')) throw new Error('Unreadable confirmation');
       booking.confirmation = response; booking.outcome = 'confirmed';
+      // The receipt and exact attempt stay historical; this separate read supplies present seating.
+      refreshCurrentConfirmation(booking);
     } catch (error) {
       if (!current()) return;
       booking.confirmation = null;
@@ -443,7 +476,11 @@
         || typeof entry.at !== 'string' || !Array.isArray(entry.changes) || !validTerms(entry.accepted_terms)
         || entry.changes.some(change => !change || typeof change.field !== 'string'
           || !Object.hasOwn(change,'from') || !Object.hasOwn(change,'to'))
-        || !['created','changed','cancelled'].includes(entry.event)))) history = null;
+        || !['created','changed','cancelled','reassigned'].includes(entry.event)
+        || (entry.event === 'reassigned' && (typeof entry.plan_id !== 'string' || !entry.plan_id
+          || entry.changes.length !== 1 || entry.changes[0].field !== 'table_ids'
+          || ![entry.changes[0].from,entry.changes[0].to].every(ids => Array.isArray(ids)
+            && ids.length >= 1 && ids.length <= 2 && ids.every(id => typeof id === 'string'))))))) history = null;
     if (decision && (decision.reference !== reference || !Number.isInteger(decision.revision) || !validTerms(decision.accepted_terms))) decision = null;
     const latest = history?.entries.at(-1) || history?.provenance.known_state;
     const known = history?.provenance.known_state;
@@ -493,7 +530,7 @@
       const known = provenance.known_state;
       baseline = `<section class="history-baseline" ${hook('history-baseline')}><h3>Details retained from an earlier record</h3><p>${provenance.kind === 'legacy_baseline' ? 'These are the known details preserved from an earlier reservation record. Earlier changes were not recorded.' : 'These details were supplied with this reservation. Earlier booking and cancellation activity was not recorded.'}</p>${known ? `<dl class="baseline-facts"><div><dt>Recorded seating</dt><dd>${escape(seatName(restaurant,members(known)))}</dd></div><div><dt>Recorded visit</dt><dd>${escape(localDate(known.starts_at_local.slice(0,10)))} at ${escape(localTime(known.starts_at_local))}</dd></div><div><dt>Recorded guests</dt><dd>${escape(known.party_size)}</dd></div><div><dt>Recorded status</dt><dd>${escape(known.status)}</dd></div></dl>` : ''}<p class="baseline-note">Only preserved details are shown here. Earlier event dates and changes are unavailable.</p></section>`;
     }
-    return `<section class="history-section" ${hook('reservation-history')}><h3 class="serif">Your reservation story</h3><p class="story-caption">Recorded activity, earliest first. Event times are local to ${escape(restaurant.timezone)}.</p>${baseline}${entries.length ? `<ol class="history-list">${entries.map(entry => `<li class="history-event" ${hook('history-event')} data-seq="${escape(entry.seq)}"><div class="event-heading"><h4>${({created:'Reservation recorded',changed:'Reservation details changed',cancelled:'Reservation cancelled'})[entry.event]}</h4>${entry.at ? `<time datetime="${escape(entry.at)}">${escape(recordedTime(entry.at,restaurant.timezone))}</time>` : ''}</div>${entry.changes.length ? `<ul class="event-changes">${entry.changes.map(change => changeMarkup(change,restaurant)).join('')}</ul>` : '<p class="story-caption">The reservation was cancelled. Its recorded details are kept here.</p>'}<details class="event-terms" ${hook('event-terms')}><summary>Accepted terms for this recorded event</summary>${termsMarkup(entry.accepted_terms,restaurant)}</details></li>`).join('')}</ol>` : `<p class="history-empty" ${hook('history-empty')}>No earlier events are available for this reservation. Preserved details are shown above; any later recorded activity will appear here.</p>`}</section>`;
+    return `<section class="history-section" ${hook('reservation-history')}><h3 class="serif">Your reservation story</h3><p class="story-caption">Recorded activity, earliest first. Event times are local to ${escape(restaurant.timezone)}.</p>${baseline}${entries.length ? `<ol class="history-list">${entries.map(entry => `<li class="history-event" ${hook('history-event')} data-seq="${escape(entry.seq)}"><div class="event-heading"><h4>${({created:'Reservation recorded',changed:'Reservation details changed',cancelled:'Reservation cancelled',reassigned:'Seating updated by the restaurant'})[entry.event]}</h4>${entry.at ? `<time datetime="${escape(entry.at)}">${escape(recordedTime(entry.at,restaurant.timezone))}</time>` : ''}</div>${entry.changes.length ? `<ul class="event-changes">${entry.changes.map(change => changeMarkup(change,restaurant)).join('')}</ul>` : '<p class="story-caption">The reservation was cancelled. Its recorded details are kept here.</p>'}${entry.event === 'reassigned' ? `<p class="story-caption">Your visit time, party size and accepted terms were kept.</p><p class="seating-update-reference" ${hook('seating-update-reference')}><span>Seating update reference</span><span>${escape(entry.plan_id)}</span></p>` : ''}<details class="event-terms" ${hook('event-terms')}><summary>Accepted terms for this recorded event</summary>${termsMarkup(entry.accepted_terms,restaurant)}</details></li>`).join('')}</ol>` : `<p class="history-empty" ${hook('history-empty')}>No earlier events are available for this reservation. Preserved details are shown above; any later recorded activity will appear here.</p>`}</section>`;
   }
   function renderProvenance() {
     const region = document.getElementById('provenance-content'); if (!region || !state.detail) return;
